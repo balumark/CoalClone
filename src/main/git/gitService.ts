@@ -92,6 +92,16 @@ function toGitError(e: unknown): GitError {
   if (/dubious ownership/i.test(msg)) return new GitError(msg, 'DUBIOUS_OWNERSHIP')
   const justWritten = msg.match(/unable to stat just-written file (.+?): No such file/i)
   if (justWritten) return new GitError(reservedNameMessage(justWritten[1].trim()), 'RESERVED_NAME')
+  // "'origin' does not appear to be a git repository" = that remote NAME has no
+  // URL configured. Distinct from NOT_A_REPO (our own folder) and from
+  // REMOTE_ACCESS (a URL we can't reach) — the fix is to add the remote.
+  const missingRemote = msg.match(/'([^']+)' does not appear to be a git repository/i)
+  if (missingRemote) {
+    return new GitError(
+      `No remote named "${missingRemote[1]}" — add its URL to push there.`,
+      'NO_REMOTE'
+    )
+  }
   if (/not a git repository/i.test(msg)) return new GitError(msg, 'NOT_A_REPO')
   if (/not fully merged/i.test(msg)) return new GitError(msg, 'NOT_MERGED')
   if (/conflict|could not apply|fix conflicts/i.test(msg)) return new GitError(msg, 'CONFLICT')

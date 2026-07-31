@@ -9,6 +9,7 @@ export default function Toasts(): JSX.Element {
   const trustDirectory = useRepoStore((s) => s.trustDirectory)
   const diagnoseRemote = useRepoStore((s) => s.openRemoteDiagnostics)
   const stage = useRepoStore((s) => s.stage)
+  const ensureRemote = useRepoStore((s) => s.ensureRemote)
   const openSettings = useRepoStore((s) => s.setSettingsOpen)
 
   // Every AI failure that the user can fix themselves is a settings problem.
@@ -47,6 +48,17 @@ export default function Toasts(): JSX.Element {
               className="mt-2 px-2 py-1 rounded bg-accent text-white text-[11px] hover:bg-accent-hover"
             >
               Trust this directory & retry
+            </button>
+          )}
+          {t.code === 'NO_REMOTE' && (
+            <button
+              onClick={() => {
+                dismiss(t.id)
+                void ensureRemote()
+              }}
+              className="mt-2 px-2 py-1 rounded bg-accent text-white text-[11px] hover:bg-accent-hover"
+            >
+              Add the remote URL…
             </button>
           )}
           {t.code === 'RESERVED_NAME' && reservedPath(t) && (

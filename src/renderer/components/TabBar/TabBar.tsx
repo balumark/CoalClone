@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useRepoStore } from '@renderer/store/useRepoStore'
+import ContextMenu, { type MenuState } from '@renderer/components/ContextMenu/ContextMenu'
 
 // GitKraken-style tab strip: one tab per open repository plus a "+" that shows
 // the Repositories screen. Only the active repo is actually open in main (one
@@ -24,6 +26,8 @@ export default function TabBar(): JSX.Element | null {
   const profiles = useRepoStore((s) => s.profiles)
   const activeProfileId = useRepoStore((s) => s.activeProfileId)
   const activateProfile = useRepoStore((s) => s.activateProfile)
+  const setSettingsOpen = useRepoStore((s) => s.setSettingsOpen)
+  const [menu, setMenu] = useState<MenuState | null>(null)
 
   // The bar also has to exist while only the placeholder tab is there.
   if (!tabs.length && !pickerOpen) return null
@@ -108,27 +112,50 @@ export default function TabBar(): JSX.Element | null {
 
       <div className="flex-1" />
 
-      {/* The active profile decides which SSH key and settings are in play. */}
+      {/* The active profile decides which SSH key and settings are in play.
+          A native <select> pops an OS-drawn list that never matches the dark
+          chrome, so this is our own menu — same one the graph/sidebar use. */}
       {profiles.length > 0 && (
         <div className="flex items-center pr-2">
-          <select
-            value={activeProfileId}
-            onChange={(e) => void activateProfile(e.target.value)}
+          <button
+            onClick={(e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              setMenu({
+                // Right-aligned under the button, clamped inside the window.
+                x: Math.max(4, Math.min(r.right - 190, window.innerWidth - 194)),
+                y: r.bottom + 4,
+                items: [
+                  ...profiles.map((p) => ({
+                    label: `${p.id === activeProfileId ? '✓ ' : '  '}${p.name}`,
+                    onClick: () => {
+                      if (p.id !== activeProfileId) void activateProfile(p.id)
+                    }
+                  })),
+                  { separator: true },
+                  { label: 'Manage profiles…', onClick: () => setSettingsOpen(true, 'profiles') }
+                ]
+              })
+            }}
             title={
               activeProfile?.sshKeyPath
-                ? `SSH key: ${activeProfile.sshKeyPath}`
-                : 'No SSH key set for this profile'
+                ? `Profile: ${activeProfile.name}\nSSH key: ${activeProfile.sshKeyPath}`
+                : `Profile: ${activeProfile?.name ?? '—'}\nNo SSH key set for this profile`
             }
-            className="bg-transparent border border-edge rounded text-[11px] px-1.5 py-0.5 text-txt-muted hover:text-txt outline-none focus:border-accent"
+            className={`flex items-center gap-1.5 h-6 px-2 rounded border text-[11px] max-w-[180px] ${
+              menu
+                ? 'border-accent text-txt-bright bg-base-800'
+                : 'border-edge text-txt-muted hover:text-txt hover:bg-base-800'
+            }`}
           >
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor" className="shrink-0" aria-hidden>
+              <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 1.5c-2.9 0-5.25 1.6-5.25 3.25 0 .69.56 1.25 1.25 1.25h8c.69 0 1.25-.56 1.25-1.25C13.25 11.1 10.9 9.5 8 9.5Z" />
+            </svg>
+            <span className="truncate">{activeProfile?.name ?? 'Profile'}</span>
+            <span className="text-txt-muted text-[9px] leading-none shrink-0">▼</span>
+          </button>
         </div>
       )}
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>
   )
 }

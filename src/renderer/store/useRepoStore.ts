@@ -228,6 +228,11 @@ interface RepoState {
   blame: BlameView | null
   openBlame: (path: string) => Promise<void>
   closeBlame: () => void
+  /**
+   * Make sure `name` (default 'origin') exists before a remote op, asking for a
+   * URL when the repository has no remotes at all. False = don't run the op.
+   */
+  ensureRemote: (name?: string) => Promise<boolean>
   fetch: () => Promise<void>
   pull: (opts?: PullOptions) => Promise<void>
   push: (opts?: PushOptions) => Promise<void>
@@ -1186,16 +1191,47 @@ export const useRepoStore = create<RepoState>((set, get) => ({
       'Rebase complete'
     )
   },
+  ensureRemote: async (name = 'origin') => {
+    const remotes = get().snapshot?.remotes ?? []
+    if (remotes.length === 0) {
+      // A freshly initialized repo has nowhere to push. git's own answer is
+      // "'origin' does not appear to be a git repository", which tells the user
+      // nothing about what to do — ask for the URL instead and wire it up.
+      const url = await get().askInput({
+        title: `This repository has no "${name}" remote yet`,
+        message: `Paste the URL to push to — it's saved as the "${name}" remote.`,
+        placeholder: 'git@github.com:user/repo.git',
+        okLabel: 'Add remote'
+      })
+      if (!url) return false
+      await get().addRemote(name, url)
+    } else if (!remotes.some((r) => r.name === name)) {
+      // Remotes exist under other names: silently adding another one would be a
+      // surprise, so say which ones are there and let them pick in the Sidebar.
+      get().pushToast({
+        kind: 'error',
+        message: `No remote named "${name}". This repository has: ${remotes
+          .map((r) => r.name)
+          .join(', ')}.`
+      })
+      return false
+    }
+    return (get().snapshot?.remotes ?? []).some((r) => r.name === name)
+  },
   fetch: async () => {
+    if (!(await get().ensureRemote())) return
     unwrap(get, await window.api.git.fetch())
     await get().refresh()
   },
   pull: async (opts) => {
+    if (!(await get().ensureRemote())) return
     const mode = opts?.mode ?? get().settings.pullMode
     unwrap(get, await window.api.git.pull({ mode }))
     await get().refresh()
   },
   push: async (opts) => {
+    if (!(await get().ensureRemote(opts?.remote ?? 'origin'))) return
+    // Re-read: adding a remote just refreshed the snapshot the defaults come from.
     const snap = get().snapshot
     const branch = snap?.status.branch ?? undefined
     const hasUpstream = !!snap?.status.upstream

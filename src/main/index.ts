@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, nativeTheme } from 'electron'
 import path from 'path'
 import { APP_NAME, APP_ID } from '@shared/appInfo'
 import { registerIpcHandlers, disposeIpc, applyActiveProfile } from './ipc'
@@ -49,6 +49,10 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   app.setAppUserModelId(APP_ID)
+  // The app is dark-only. `color-scheme: dark` in CSS doesn't reach the widgets
+  // Chromium draws outside the page — <select> popups, native dialogs — so on a
+  // light-themed OS those flash up white in the middle of the dark UI.
+  nativeTheme.themeSource = 'dark'
   registerIpcHandlers()
   // Load the active profile's SSH key before any git call can happen.
   void applyActiveProfile()

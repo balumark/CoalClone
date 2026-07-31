@@ -31,6 +31,8 @@ task. See the Memory Protocol in [CLAUDE.md](CLAUDE.md) for how to add/update en
 - [ESM preload path](fragments/esm-preload-path.md) — under `type:module` the preload is `.mjs`; main must load `index.mjs` or `window.api` is undefined and the whole UI goes dead.
 - [diff2html theming](fragments/diff2html-theming.md) — control diff colors by setting both `--d2h-*`/`--d2h-dark-*` vars (soft palette), and the static line-number fix for scroll drift.
 - [Initialize a non-repo](fragments/init-non-repo.md) — opening a plain folder offers "Initialize" (`repo:init`) instead of erroring; `askConfirm` + the `NO_DIR` guard.
+- [Missing remote](fragments/missing-remote.md) — `ensureRemote()` asks for the origin URL before fetch/pull/push; the `NO_REMOTE` error code.
+- [Dark native widgets](fragments/dark-native-widgets.md) — `nativeTheme.themeSource = 'dark'` for select popups/dialogs, and using ContextMenu instead of `<select>` in the chrome.
 - [Input prompt](fragments/input-prompt.md) — Electron has no `window.prompt`; use the store's `askInput()` + `PromptDialog` modal for all text entry.
 - [Author avatars](fragments/author-avatars.md) — Gravatar fetched in main (data: URI to bypass renderer CSP) with identicon fallback; the general "proxy external fetches through main" rule.
 - [Pull options](fragments/pull-options.md) — the Pull split-button dropdown: Fetch All + persisted pull mode (ff / ff-only / rebase) and its full IPC/settings wiring.
