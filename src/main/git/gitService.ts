@@ -964,10 +964,24 @@ export class GitService {
     return { path: filePath, binary: false, raw, additions: lines.length, deletions: 0 }
   }
 
+  /**
+   * Per-file patch for one commit. `-m --first-parent` matters for merges: plain
+   * `git show` uses a dense combined diff (`--cc`) there, which lists nothing for a
+   * clean merge — so the UI showed "changed files (0)". Diffing against the first
+   * parent instead shows everything the merge brought in. Harmless on normal commits.
+   */
   async commitDiff(hash: string): Promise<DiffFile[]> {
     const git = this.ensure()
     try {
-      const raw = await git.raw(['show', hash, '--format=', '--patch', '--unified=3'])
+      const raw = await git.raw([
+        'show',
+        hash,
+        '--format=',
+        '--patch',
+        '--unified=3',
+        '-m',
+        '--first-parent'
+      ])
       return splitPatch(raw)
     } catch (e) {
       throw toGitError(e)
@@ -1101,7 +1115,11 @@ export class GitService {
     }
   }
 
-  /** Raw `git show` (message + stat + patch) for one commit, for AI analysis. */
+  /**
+   * Raw `git show` (message + stat + patch) for one commit, for AI analysis.
+   * `-m --first-parent` for the same reason as {@link commitDiff} — otherwise a
+   * merge commit reaches the model with an empty diff.
+   */
   async commitPatch(hash: string): Promise<string> {
     const git = this.ensure()
     try {
@@ -1112,6 +1130,8 @@ export class GitService {
         '--patch',
         '--unified=3',
         '--no-color',
+        '-m',
+        '--first-parent',
         '--format=%H%n%an <%ae>%n%aI%n%n%B'
       ])
     } catch (e) {
