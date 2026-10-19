@@ -41,3 +41,5 @@ the Remote Diagnostics dialog and the "SSH keys…" toast action. Shared `Row`/`
 helpers are exported from `SettingsDialog.tsx`; new sections should reuse them.
 
 Related: [[ssh-auth]], [[graph-virtualization]], [[author-avatars]], [[architecture-overview]], [[milestone-roadmap]].
+
+**Dialog look (shared building blocks):** `SettingsDialog.tsx` exports `Row`, `Card` (rounded group of rows), `SectionTitle`, `Check` (renders an on/off *switch* — the name stayed for existing call sites), `inputClass` and `btn.{primary,secondary,danger,small}`. New settings UI should use these rather than inline Tailwind so every page stays consistent. The nav has an icon per tab (icons in `components/icons/UiIcons.tsx`), each page gets a header from `TABS[].description`, the nav footer names the profile being edited, and the dialog footer says where the page writes: profile (auto-saved), git config (Git identity), or ~/.ssh / repo config (SSH).

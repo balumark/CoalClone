@@ -20,7 +20,7 @@ export default function LoadFailure({
       <div>
         <button
           onClick={onRetry}
-          className="px-2 py-1 rounded text-[11px] border border-edge text-txt hover:bg-base-700"
+          className="inline-flex items-center h-7 px-2.5 rounded-md border border-edge bg-base-700/60 text-txt text-[11.5px] hover:bg-base-600"
         >
           Retry
         </button>

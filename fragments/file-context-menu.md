@@ -33,3 +33,5 @@ file (`type !== 'untracked'`) also runs `git rm --cached` so git stops surfacing
 (shows as a staged deletion; file stays on disk). The "Ignore all *.ext" item uses
 the plain `addToIgnore` (pattern only, no untrack).
 See [[context-menu-parity]] (graph/sidebar menus) and [[ipc-contract]].
+
+**Row look & views:** `FileRow` shows the file name first and its folder dimmed after it, a colored status badge, and hover icon actions (+ stage / − unstage / trash discard; always visible on the selected row). The discard checkbox *replaces the badge* on hover (or while anything is ticked) so it costs no width. `FileList` renders either a flat Path view or a Tree view (`buildTree` + `compactTree` from `lib/refTree.ts` — single-child folder chains fold into one row; folders stage/unstage/discard as a whole). The Path/Tree choice is per-viewer UI state in `localStorage['coal.commitPanel.view']`. Both list headers collapse; the summary box shows a 72-char countdown.

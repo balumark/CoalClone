@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useRepoStore } from '@renderer/store/useRepoStore'
-import { Check, Row, inputClass } from './SettingsDialog'
+import { Check, Row, btn, inputClass } from './SettingsDialog'
 import LoadFailure from './LoadFailure'
 
 // Settings > Git profile: the identity git stamps on commits. The global values
@@ -33,7 +33,8 @@ export default function ProfileSection(): JSX.Element {
   }, [identity])
 
   if (!identity) {
-    if (error) return <LoadFailure what="your git config" error={error} onRetry={() => void reload()} />
+    if (error)
+      return <LoadFailure what="your git config" error={error} onRetry={() => void reload()} />
     return <div className="text-[12px] text-txt-muted">Reading git config…</div>
   }
 
@@ -55,10 +56,10 @@ export default function ProfileSection(): JSX.Element {
 
   return (
     <div className="flex flex-col">
-      <div className="text-[11px] uppercase tracking-wide text-txt-muted mb-1">
+      <div className="mb-2 mt-6 first:mt-0 px-0.5 text-[10.5px] font-semibold uppercase tracking-wider text-txt-muted/90">
         Global identity (git config --global)
       </div>
-      <div className="divide-y divide-edge/50">
+      <div className="rounded-lg border border-edge bg-base-900/40 px-4 divide-y divide-edge/60">
         <Row label="Name" hint="Shown as the author of your commits.">
           {field('globalName', 'Your Name')}
         </Row>
@@ -67,11 +68,11 @@ export default function ProfileSection(): JSX.Element {
         </Row>
       </div>
 
-      <div className="text-[11px] uppercase tracking-wide text-txt-muted mt-5 mb-1">
+      <div className="mb-2 mt-6 first:mt-0 px-0.5 text-[10.5px] font-semibold uppercase tracking-wider text-txt-muted/90">
         This repository {ref ? `(${ref.name})` : ''}
       </div>
       {ref ? (
-        <div className="divide-y divide-edge/50">
+        <div className="rounded-lg border border-edge bg-base-900/40 px-4 divide-y divide-edge/60">
           <Row label="Name override" hint="Leave empty to use the global name.">
             {field('repoName', identity.globalName ?? '(global)')}
           </Row>
@@ -83,8 +84,10 @@ export default function ProfileSection(): JSX.Element {
         <div className="text-[12px] text-txt-muted py-2">Open a repository to set an override.</div>
       )}
 
-      <div className="text-[11px] uppercase tracking-wide text-txt-muted mt-5 mb-1">Signing</div>
-      <div className="divide-y divide-edge/50">
+      <div className="mb-2 mt-6 first:mt-0 px-0.5 text-[10.5px] font-semibold uppercase tracking-wider text-txt-muted/90">
+        Signing
+      </div>
+      <div className="rounded-lg border border-edge bg-base-900/40 px-4 divide-y divide-edge/60">
         <Row label="Signing key" hint="GPG key id, or the path to an SSH signing key.">
           {field('signingKey', 'none')}
         </Row>
@@ -107,7 +110,7 @@ export default function ProfileSection(): JSX.Element {
               signingKey: draft.signingKey
             })
           }
-          className="px-3 py-1 rounded bg-accent text-white text-[12px] hover:bg-accent-hover disabled:opacity-40"
+          className={btn.primary}
         >
           Save identity
         </button>

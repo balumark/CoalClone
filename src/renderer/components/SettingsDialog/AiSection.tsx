@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useRepoStore } from '@renderer/store/useRepoStore'
-import { Check, Row, inputClass } from './SettingsDialog'
-import type { AiFeatureKey, AiProvider } from '@shared/types'
+import { Check, Row, btn, inputClass } from './SettingsDialog'
+import type { AiFeatureKey, AiProvider, AiTestResult, Result } from '@shared/types'
 
 // Settings > AI: the GitKraken-style panel. Global switches at the top (on/off,
 // provider, API key), then one block per feature with its own model + custom
@@ -102,7 +102,7 @@ function KeyEditor({ provider }: { provider: AiProvider }): JSX.Element {
         <button
           onClick={() => void submit()}
           disabled={!draft.trim() || busy || !canStore}
-          className="px-2 py-1 rounded bg-accent text-white text-[11px] hover:bg-accent-hover disabled:opacity-40"
+          className={btn.primary}
         >
           Save
         </button>
@@ -110,7 +110,7 @@ function KeyEditor({ provider }: { provider: AiProvider }): JSX.Element {
           <button
             onClick={() => void saveKey(provider, null)}
             title="Forget the stored key"
-            className="px-2 py-1 rounded border border-edge text-[11px] text-bad hover:bg-bad/15"
+            className={btn.danger}
           >
             Remove
           </button>
@@ -125,11 +125,65 @@ function KeyEditor({ provider }: { provider: AiProvider }): JSX.Element {
   )
 }
 
-function FeatureBlock({
-  feature
-}: {
-  feature: (typeof FEATURES)[number]
-}): JSX.Element {
+/**
+ * "Test connection": one tiny real request with the saved key, the current
+ * endpoint and the commit-message model. The outcome stays inline next to the
+ * button (not a toast) and is cleared as soon as anything it depended on changes.
+ */
+function ConnectionTest(): JSX.Element {
+  const ai = useRepoStore((s) => s.settings.ai)
+  const status = useRepoStore((s) => s.aiStatus)
+  const testAi = useRepoStore((s) => s.testAi)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<Result<AiTestResult> | null>(null)
+
+  const hasKey = status?.saved[ai.provider] ?? false
+  const model = ai.features.commitMessage.model
+  useEffect(() => setResult(null), [ai.provider, ai.baseUrl, hasKey, model])
+
+  const run = async (): Promise<void> => {
+    setBusy(true)
+    setResult(null)
+    try {
+      setResult(await testAi())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const missing = !hasKey
+    ? 'Save an API key first.'
+    : ai.provider === 'custom' && !ai.baseUrl.trim()
+      ? 'Set the base URL first.'
+      : null
+
+  return (
+    <div className="flex flex-col items-end gap-1 max-w-[340px]">
+      <button
+        onClick={() => void run()}
+        disabled={busy || !!missing}
+        title={missing ?? 'Send one tiny request to check the key, endpoint and model'}
+        className="inline-flex items-center h-[30px] px-3 rounded-md border border-good/50 text-good text-[12px] hover:bg-good/10 disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        {busy ? 'Testing…' : 'Test connection'}
+      </button>
+      {missing && !result && <span className="text-[11px] text-txt-muted">{missing}</span>}
+      {result?.ok && (
+        <span className="text-[11px] text-good text-right">
+          ✓ Connected — {result.value.model} answered in {result.value.ms} ms
+          {result.value.reply && <span className="text-txt-muted"> (“{result.value.reply}”)</span>}
+        </span>
+      )}
+      {result && !result.ok && (
+        <span className="text-[11px] text-bad text-right break-words select-text">
+          ✕ {result.error}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function FeatureBlock({ feature }: { feature: (typeof FEATURES)[number] }): JSX.Element {
   const ai = useRepoStore((s) => s.settings.ai)
   const updateAi = useRepoStore((s) => s.updateAi)
   const cfg = ai.features[feature.key]
@@ -148,9 +202,11 @@ function FeatureBlock({
   const listId = `ai-models-${feature.key}`
   return (
     <div className="mt-5">
-      <div className="text-[11px] uppercase tracking-wide text-txt-muted mb-1">{feature.title}</div>
+      <div className="mb-2 mt-6 first:mt-0 px-0.5 text-[10.5px] font-semibold uppercase tracking-wider text-txt-muted/90">
+        {feature.title}
+      </div>
       <div className="text-[11px] text-txt-muted mb-1">{feature.what}</div>
-      <div className="divide-y divide-edge/50">
+      <div className="rounded-lg border border-edge bg-base-900/40 px-4 divide-y divide-edge/60">
         <Row label="Model" hint="Empty = the provider default.">
           <input
             value={model}
@@ -201,17 +257,14 @@ export default function AiSection(): JSX.Element {
 
   return (
     <div className="flex flex-col">
-      <div className="divide-y divide-edge/50">
+      <div className="rounded-lg border border-edge bg-base-900/40 px-4 divide-y divide-edge/60">
         <Row
           label="Enable AI assistance"
           hint="Off hides every AI button; nothing is ever sent anywhere."
         >
           <Check checked={ai.enabled} onChange={(v) => void updateAi({ enabled: v })} />
         </Row>
-        <Row
-          label="Provider"
-          hint="Requests go straight from this app to the provider you pick."
-        >
+        <Row label="Provider" hint="Requests go straight from this app to the provider you pick.">
           <select
             value={ai.provider}
             disabled={!ai.enabled}
@@ -240,6 +293,12 @@ export default function AiSection(): JSX.Element {
         )}
         <Row label="Provider API key" hint={`Stored encrypted by your OS — ${provider.keyHint}`}>
           <KeyEditor provider={ai.provider} />
+        </Row>
+        <Row
+          label="Connection"
+          hint="Checks the key, the endpoint and the commit-message model with one tiny request."
+        >
+          <ConnectionTest />
         </Row>
       </div>
 

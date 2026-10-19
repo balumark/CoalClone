@@ -65,3 +65,5 @@ overlay), and deep-links to the settings tab when no key is stored yet. AI error
 settings" toast action.
 
 Related: [[settings]], [[ipc-contract]], [[git-service]], [[architecture-overview]].
+
+**Test connection** (Settings → AI, `ai:test` → `testAiConnection()`): one tiny real request ("Reply with the single word: OK", max 16 tokens) through the same `send()` router the features use, with the commit-message feature's model (or the provider default). A real completion rather than a model listing, because only that catches a mistyped model id. Deliberately skips the `enabled` check so it can be verified before switching AI on. The result renders inline next to the button (no toast) and is cleared when provider, base URL, key presence or that model changes.

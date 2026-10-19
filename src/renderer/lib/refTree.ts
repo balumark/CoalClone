@@ -54,6 +54,25 @@ function sortTree<T>(node: TreeNode<T>): void {
   node.children.forEach(sortTree)
 }
 
+/**
+ * Fold chains of single-child folders into one row (`src` › `main` › `ai`
+ * becomes `src/main/ai`), the way GitKraken's tree view shows deep paths.
+ * A folder holding exactly one other folder and nothing else carries no
+ * information of its own. Leaves are never merged into their folder.
+ */
+export function compactTree<T>(nodes: TreeNode<T>[]): TreeNode<T>[] {
+  return nodes.map((n) => {
+    if (n.item !== undefined) return n
+    let node = n
+    let name = n.name
+    while (node.children.length === 1 && node.children[0].item === undefined) {
+      node = node.children[0]
+      name = `${name}/${node.name}`
+    }
+    return { ...node, name, offset: n.offset, children: compactTree(node.children) }
+  })
+}
+
 /** Case-insensitive substring match; returns the matched [start, end) or null. */
 export function matchRange(text: string, query: string): [number, number] | null {
   const q = query.trim().toLowerCase()

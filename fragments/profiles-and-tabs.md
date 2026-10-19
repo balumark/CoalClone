@@ -102,3 +102,5 @@ settings block (accent, pull mode, AI config…), the host tokens, the AI keys, 
 the open tabs in one move.
 
 Related: [[settings]], [[ssh-auth]], [[git-service]], [[ipc-contract]], [[ai-assistance]].
+
+**Profile menu** (`TabBar/ProfileMenu.tsx`): our own popover, not the native-style ContextMenu (it needs avatars). Avatar = Gravatar of the profile's `gitEmail`, else an identicon of its name. The switcher list expands inline; below it, Commit signature shows what a commit made NOW would use (repo config, else global — via `loadIdentity()` on open), *not* the profile's gitName/gitEmail, which only get stamped onto repos the profile clones/creates. Then SSH key, AI provider/on-off, host tokens (`loadHostTokens()`), and shortcuts into the Settings tabs.

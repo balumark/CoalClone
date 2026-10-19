@@ -10,7 +10,8 @@ import type {
   AiKeyStatus,
   AiProvider,
   AiPullRequest,
-  AiSettings
+  AiSettings,
+  AiTestResult
 } from '@shared/types'
 import { getSettings } from '../settings'
 import { getActiveProfile, getProfileIds } from '../profiles'
@@ -174,16 +175,55 @@ async function complete(feature: AiFeatureKey, prompt: Prompt): Promise<string> 
     ? `${prompt.system}\n\nAdditional instructions from the user:\n${instructions}`
     : prompt.system
 
-  const text =
-    ai.provider === 'anthropic'
-      ? await callAnthropic(key, model, system, prompt)
-      : ai.provider === 'google'
-        ? await callGoogle(key, model, system, prompt)
-        : await callOpenAiCompatible(ai, key, model, system, prompt)
-
-  const trimmed = text.trim()
+  const trimmed = (await send(ai, key, model, system, prompt)).trim()
   if (!trimmed) throw new AiError('The model returned an empty response.', 'AI_EMPTY')
   return trimmed
+}
+
+/** Route one prompt to the configured provider's API. */
+function send(
+  ai: AiSettings,
+  key: string,
+  model: string,
+  system: string,
+  prompt: Prompt
+): Promise<string> {
+  return ai.provider === 'anthropic'
+    ? callAnthropic(key, model, system, prompt)
+    : ai.provider === 'google'
+      ? callGoogle(key, model, system, prompt)
+      : callOpenAiCompatible(ai, key, model, system, prompt)
+}
+
+/**
+ * Settings → AI "Test connection": one tiny real request through exactly the
+ * path the features use, so it proves the key, the endpoint AND the model id
+ * (a model listing would not catch a mistyped model). Uses the commit-message
+ * feature's model, falling back to the provider default. Works while AI is
+ * still switched off, so it can be checked before turning it on.
+ */
+export async function testAiConnection(): Promise<AiTestResult> {
+  const { ai } = await getSettings()
+  const model = (ai.features.commitMessage.model || DEFAULT_MODEL[ai.provider]).trim()
+  if (!model) {
+    throw new AiError(
+      'No model configured — set one under Commit message generation.',
+      'AI_NO_MODEL'
+    )
+  }
+  const key = await readKey(ai.provider)
+  const started = Date.now()
+  const reply = await send(ai, key, model, 'You are a connectivity check for a git client.', {
+    system: '',
+    user: 'Reply with the single word: OK',
+    maxTokens: 16
+  })
+  return {
+    provider: ai.provider,
+    model,
+    ms: Date.now() - started,
+    reply: reply.trim().replace(/\s+/g, ' ').slice(0, 80)
+  }
 }
 
 async function callAnthropic(

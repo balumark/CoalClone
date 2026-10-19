@@ -9,6 +9,7 @@ import type {
   AiProvider,
   AiPullRequest,
   AiSettingsPatch,
+  AiTestResult,
   AppSettings,
   AppSettingsPatch,
   BlameLine,
@@ -296,6 +297,8 @@ interface RepoState {
   prDraft: { open: boolean; base: string; result: AiPullRequest | null }
   loadAiStatus: () => Promise<void>
   saveAiKey: (provider: AiProvider, key: string | null) => Promise<void>
+  /** One tiny real request with the current provider/key/model (Settings → AI). */
+  testAi: () => Promise<Result<AiTestResult>>
   generateCommitMessage: () => Promise<AiCommitMessage | null>
   explainCommit: (hash: string) => Promise<void>
   closeAiExplain: () => void
@@ -1494,6 +1497,8 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     const res = await call(() => window.api.ai.status())
     if (res.ok) set({ aiStatus: res.value })
   },
+  // No toast: the AI settings panel shows the outcome inline, next to the button.
+  testAi: () => call(() => window.api.ai.test()),
   saveAiKey: async (provider, key) => {
     const res = await call(() => window.api.ai.setKey(provider, key))
     const status = unwrap(get, res)

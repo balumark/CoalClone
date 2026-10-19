@@ -119,6 +119,7 @@ export const IPC = {
   // AI assistance (key handling + the generators)
   AiStatus: 'ai:status',
   AiSetKey: 'ai:set-key',
+  AiTest: 'ai:test',
   AiCommitMessage: 'ai:commit-message',
   AiExplainCommit: 'ai:explain-commit',
   AiStashMessage: 'ai:stash-message',

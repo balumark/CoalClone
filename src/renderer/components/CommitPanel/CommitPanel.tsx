@@ -5,6 +5,15 @@ import ContextMenu, {
   type MenuState
 } from '@renderer/components/ContextMenu/ContextMenu'
 import { isWorkingAction, runningLabel } from '@renderer/lib/format'
+import { buildTree, compactTree, type TreeNode } from '@renderer/lib/refTree'
+import { BranchIcon, ChevronIcon, FolderIcon, StashIcon } from '@renderer/components/icons/RefIcons'
+import {
+  ListIcon,
+  MinusIcon,
+  PlusIcon,
+  TrashIcon,
+  TreeIcon
+} from '@renderer/components/icons/UiIcons'
 import type { ConflictResolution, FileStatus, GitOperation } from '@shared/types'
 
 const opLabel: Record<GitOperation, string> = {
@@ -12,21 +21,6 @@ const opLabel: Record<GitOperation, string> = {
   rebase: 'Rebasing',
   'cherry-pick': 'Cherry-picking',
   revert: 'Reverting'
-}
-
-function TrashIcon({ className }: { className?: string }): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="currentColor"
-      className={className}
-      aria-hidden
-    >
-      <path d="M6.5 1a1 1 0 0 0-1 1v.5H3a.75.75 0 0 0 0 1.5h.28l.6 8.4A1.75 1.75 0 0 0 5.63 16h4.74a1.75 1.75 0 0 0 1.75-1.6l.6-8.4H13a.75.75 0 0 0 0-1.5h-2.5V2a1 1 0 0 0-1-1h-3ZM9 2.5H7V2h2v.5Zm-2.75 3.25a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm4 0a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Z" />
-    </svg>
-  )
 }
 
 function SparkleIcon(): JSX.Element {
@@ -187,63 +181,138 @@ function ResolvedRow({
 
 // Staging area: unstaged + staged lists with stage/unstage/discard, a message
 // box and the commit button. Selecting a file loads its working diff.
+//
+// Rows show the file NAME first and its folder dimmed after it (what you scan
+// for is the name), a colored status badge, and icon actions on hover. The
+// lists can be flat ("Path") or a folder tree ("Tree", built with the same
+// lib/refTree the sidebar uses) — folders stage/unstage as a whole.
 
-const typeInfo: Record<FileStatus['type'], { glyph: string; color: string }> = {
-  modified: { glyph: 'M', color: 'text-warn' },
-  added: { glyph: 'A', color: 'text-good' },
-  deleted: { glyph: 'D', color: 'text-bad' },
-  renamed: { glyph: 'R', color: 'text-accent' },
-  copied: { glyph: 'C', color: 'text-accent' },
-  untracked: { glyph: 'U', color: 'text-good' },
-  conflicted: { glyph: '!', color: 'text-bad' },
-  unknown: { glyph: '?', color: 'text-txt-muted' }
+const typeInfo: Record<FileStatus['type'], { glyph: string; cls: string; label: string }> = {
+  modified: { glyph: 'M', cls: 'bg-warn/15 text-warn', label: 'Modified' },
+  added: { glyph: 'A', cls: 'bg-good/15 text-good', label: 'Added' },
+  deleted: { glyph: 'D', cls: 'bg-bad/15 text-bad', label: 'Deleted' },
+  renamed: { glyph: 'R', cls: 'bg-accent/20 text-accent', label: 'Renamed' },
+  copied: { glyph: 'C', cls: 'bg-accent/20 text-accent', label: 'Copied' },
+  untracked: { glyph: 'U', cls: 'bg-good/15 text-good', label: 'Untracked (new file)' },
+  conflicted: { glyph: '!', cls: 'bg-bad/20 text-bad', label: 'Conflicted' },
+  unknown: { glyph: '?', cls: 'bg-base-600 text-txt-muted', label: 'Unknown' }
 }
+
+export type FileView = 'path' | 'tree'
+const VIEW_KEY = 'coal.commitPanel.view'
+
+function loadView(): FileView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'tree' ? 'tree' : 'path'
+  } catch {
+    return 'path'
+  }
+}
+
+function saveView(v: FileView): void {
+  try {
+    localStorage.setItem(VIEW_KEY, v)
+  } catch {
+    // Storage unavailable — the choice just won't survive a restart.
+  }
+}
+
+function StatusBadge({ type }: { type: FileStatus['type'] }): JSX.Element {
+  const info = typeInfo[type]
+  return (
+    <span
+      title={info.label}
+      className={`inline-flex items-center justify-center w-[16px] h-[16px] rounded-[4px] font-mono text-[10px] font-semibold shrink-0 ${info.cls}`}
+    >
+      {info.glyph}
+    </span>
+  )
+}
+
+const iconBtn =
+  'inline-flex items-center justify-center w-[22px] h-[22px] rounded-md text-[13px] shrink-0 disabled:opacity-30 disabled:cursor-not-allowed'
 
 function FileRow({
   file,
+  name,
+  dir,
+  depth = 0,
   selected,
   onSelect,
-  actionLabel,
+  staged,
   onAction,
   onDiscard,
   onContext,
   checked,
   onCheck,
+  anyChecked,
   disabled
 }: {
   file: FileStatus
+  /** What to show as the name (the last segment). */
+  name: string
+  /** Folder shown dimmed after the name (path view only). */
+  dir?: string
+  depth?: number
   selected: boolean
   onSelect: () => void
-  actionLabel: string
+  staged: boolean
   onAction: () => void
   onDiscard?: () => void
   onContext?: (e: MouseEvent) => void
   checked?: boolean
   onCheck?: () => void
+  /** Some row is ticked — keep every checkbox visible so the selection reads. */
+  anyChecked?: boolean
   /** An index op is already running — don't queue a second one on top of it. */
   disabled?: boolean
 }): JSX.Element {
-  const info = typeInfo[file.type]
   return (
     <div
-      className={`group flex items-center px-2 py-1 gap-2 cursor-pointer ${
-        selected ? 'bg-accent/15' : 'hover:bg-base-700'
+      className={`group relative flex items-center h-[26px] pr-1.5 gap-2 cursor-pointer select-none ${
+        selected ? 'bg-accent/15' : 'hover:bg-white/[0.04]'
       }`}
+      style={{ paddingLeft: 10 + depth * 14 }}
       onClick={onSelect}
       onContextMenu={onContext}
+      title={file.path}
     >
-      {onCheck && (
-        <input
-          type="checkbox"
-          checked={!!checked}
-          onClick={(e) => e.stopPropagation()}
-          onChange={onCheck}
-          title="Select for discard"
-          className="accent-accent shrink-0"
-        />
-      )}
-      <span className={`font-mono text-[11px] w-3 shrink-0 ${info.color}`}>{info.glyph}</span>
-      <span className="truncate font-mono text-[12px] flex-1">{file.path}</span>
+      {selected && <span className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />}
+      {/* The discard checkbox takes the status badge's place on hover (or while
+          anything is ticked), so it costs no width and rows stay aligned. */}
+      <span className="relative flex items-center justify-center w-4 h-4 shrink-0">
+        <span
+          className={`flex ${onCheck ? (checked || anyChecked ? 'invisible' : 'group-hover:invisible') : ''}`}
+        >
+          <StatusBadge type={file.type} />
+        </span>
+        {onCheck && (
+          <input
+            type="checkbox"
+            checked={!!checked}
+            onClick={(e) => e.stopPropagation()}
+            onChange={onCheck}
+            title="Select for discard"
+            className={`absolute inset-0 m-auto accent-accent w-3.5 h-3.5 ${
+              checked || anyChecked ? '' : 'invisible group-hover:visible'
+            }`}
+          />
+        )}
+      </span>
+      <span className="flex-1 min-w-0 flex items-baseline gap-1.5 overflow-hidden">
+        <span
+          className={`truncate text-[12.5px] shrink-0 max-w-full ${
+            file.type === 'deleted'
+              ? 'line-through text-txt-muted'
+              : selected
+                ? 'text-txt-bright'
+                : 'text-txt'
+          }`}
+        >
+          {name}
+        </span>
+        {dir && <span className="truncate text-[11px] text-txt-muted/70">{dir}</span>}
+      </span>
       {file.reserved && (
         <span
           className="shrink-0 text-warn text-[11px]"
@@ -252,32 +321,230 @@ function FileRow({
           ⚠
         </span>
       )}
-      {onDiscard && (
+      <span
+        className={`flex items-center gap-0.5 ${selected ? '' : 'opacity-0 group-hover:opacity-100'}`}
+      >
+        {onDiscard && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDiscard()
+            }}
+            disabled={disabled}
+            className={`${iconBtn} text-txt-muted hover:text-bad hover:bg-bad/15`}
+            title="Discard changes"
+          >
+            <TrashIcon />
+          </button>
+        )}
         <button
           onClick={(e) => {
             e.stopPropagation()
-            onDiscard()
+            onAction()
           }}
           disabled={disabled}
-          className="opacity-0 group-hover:opacity-100 text-[10px] px-1 rounded text-bad hover:bg-bad/15 disabled:opacity-0"
-          title="Discard changes"
+          className={`${iconBtn} ${
+            staged
+              ? 'text-txt-muted hover:text-txt-bright hover:bg-white/[0.08]'
+              : 'text-good hover:bg-good/15'
+          }`}
+          title={staged ? 'Unstage file' : 'Stage file'}
         >
-          ⨯
+          {staged ? <MinusIcon /> : <PlusIcon />}
         </button>
-      )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          onAction()
-        }}
-        disabled={disabled}
-        className="opacity-0 group-hover:opacity-100 text-[10px] px-1.5 rounded border border-edge text-txt-muted hover:bg-base-600 disabled:!opacity-30 disabled:cursor-not-allowed"
-      >
-        {actionLabel}
-      </button>
+      </span>
     </div>
   )
 }
+
+function leavesOf(node: TreeNode<FileStatus>): FileStatus[] {
+  return node.item ? [node.item] : node.children.flatMap(leavesOf)
+}
+
+/** One staging list (unstaged or staged), flat or as a folder tree. */
+function FileList({
+  files,
+  staged,
+  view,
+  isSelected,
+  onSelect,
+  onAction,
+  onDiscard,
+  onContext,
+  checked,
+  onCheck,
+  disabled
+}: {
+  files: FileStatus[]
+  staged: boolean
+  view: FileView
+  isSelected: (f: FileStatus) => boolean
+  onSelect: (f: FileStatus) => void
+  onAction: (paths: string[]) => void
+  onDiscard?: (files: FileStatus[]) => void
+  onContext: (e: MouseEvent, f: FileStatus) => void
+  checked?: Set<string>
+  onCheck?: (path: string) => void
+  disabled?: boolean
+}): JSX.Element {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const anyChecked = !!checked && checked.size > 0
+
+  const row = (
+    f: FileStatus,
+    name: string,
+    dir: string | undefined,
+    depth: number
+  ): JSX.Element => (
+    <FileRow
+      key={f.path}
+      file={f}
+      name={name}
+      dir={dir}
+      depth={depth}
+      selected={isSelected(f)}
+      onSelect={() => onSelect(f)}
+      staged={staged}
+      onAction={() => onAction([f.path])}
+      onDiscard={onDiscard ? () => onDiscard([f]) : undefined}
+      onContext={(e) => onContext(e, f)}
+      checked={checked?.has(f.path)}
+      onCheck={onCheck ? () => onCheck(f.path) : undefined}
+      anyChecked={anyChecked}
+      disabled={disabled}
+    />
+  )
+
+  if (view === 'path') {
+    return (
+      <>
+        {files.map((f) => {
+          const slash = f.path.lastIndexOf('/')
+          return row(
+            f,
+            slash >= 0 ? f.path.slice(slash + 1) : f.path,
+            slash >= 0 ? f.path.slice(0, slash) : undefined,
+            0
+          )
+        })}
+      </>
+    )
+  }
+
+  const render = (nodes: TreeNode<FileStatus>[], depth: number): JSX.Element[] =>
+    nodes.map((n) => {
+      if (n.item) return row(n.item, n.name, undefined, depth)
+      const open = !collapsed.has(n.path)
+      const leaves = leavesOf(n)
+      return (
+        <div key={`dir:${n.path}`}>
+          <div
+            onClick={() =>
+              setCollapsed((prev) => {
+                const next = new Set(prev)
+                if (next.has(n.path)) next.delete(n.path)
+                else next.add(n.path)
+                return next
+              })
+            }
+            style={{ paddingLeft: 10 + depth * 14 }}
+            className="group flex items-center h-[26px] pr-1.5 gap-1.5 cursor-pointer select-none text-txt-muted hover:bg-white/[0.04] hover:text-txt"
+          >
+            <ChevronIcon
+              className={`text-[10px] shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+            />
+            <FolderIcon className="text-[13px] shrink-0 text-txt-muted/80" />
+            <span className="flex-1 truncate text-[12.5px]">{n.name}</span>
+            <span className="text-[10.5px] tabular-nums text-txt-muted/70 group-hover:hidden">
+              {leaves.length}
+            </span>
+            <span className="hidden group-hover:flex items-center gap-0.5">
+              {onDiscard && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDiscard(leaves)
+                  }}
+                  disabled={disabled}
+                  className={`${iconBtn} text-txt-muted hover:text-bad hover:bg-bad/15`}
+                  title={`Discard changes in ${n.path}/`}
+                >
+                  <TrashIcon />
+                </button>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAction(leaves.map((f) => f.path))
+                }}
+                disabled={disabled}
+                className={`${iconBtn} ${
+                  staged
+                    ? 'text-txt-muted hover:text-txt-bright hover:bg-white/[0.08]'
+                    : 'text-good hover:bg-good/15'
+                }`}
+                title={`${staged ? 'Unstage' : 'Stage'} everything in ${n.path}/`}
+              >
+                {staged ? <MinusIcon /> : <PlusIcon />}
+              </button>
+            </span>
+          </div>
+          {open && render(n.children, depth + 1)}
+        </div>
+      )
+    })
+
+  return <>{render(compactTree(buildTree(files, (f) => f.path)), 0)}</>
+}
+
+/** Collapsible header above a staging list. */
+function ListHeader({
+  title,
+  count,
+  tone = 'muted',
+  open,
+  onToggle,
+  lead,
+  action
+}: {
+  title: string
+  count: number
+  tone?: 'muted' | 'good'
+  open: boolean
+  onToggle: () => void
+  lead?: React.ReactNode
+  action?: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-2 pl-2 pr-1.5 h-8 bg-base-800 border-y border-edge/80 shrink-0 select-none">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-txt-muted hover:text-txt"
+      >
+        <ChevronIcon
+          className={`text-[10px] shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        {title}
+      </button>
+      <span
+        className={`inline-flex items-center h-[17px] min-w-[20px] justify-center px-1.5 rounded-full text-[10.5px] font-semibold tabular-nums ${
+          count === 0
+            ? 'bg-base-700 text-txt-muted/70'
+            : tone === 'good'
+              ? 'bg-good/15 text-good'
+              : 'bg-base-600 text-txt'
+        }`}
+      >
+        {count}
+      </span>
+      {lead}
+      <span className="ml-auto flex items-center gap-1">{action}</span>
+    </div>
+  )
+}
+
+const headerBtn =
+  'inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-medium border disabled:opacity-40 disabled:cursor-not-allowed'
 
 export default function CommitPanel(): JSX.Element {
   const snapshot = useRepoStore((s) => s.snapshot)
@@ -324,6 +591,13 @@ export default function CommitPanel(): JSX.Element {
   const [sign, setSign] = useState(false)
   // Paths ticked for a bulk discard via the top trash icon.
   const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [view, setView] = useState<FileView>(loadView)
+  const [unstagedOpen, setUnstagedOpen] = useState(true)
+  const [stagedOpen, setStagedOpen] = useState(true)
+  const changeView = (v: FileView): void => {
+    setView(v)
+    saveView(v)
+  }
 
   // Index/working-tree ops report progress from main; show them where they happen
   // instead of only in the toolbar pill (staging a big tree isn't instant).
@@ -502,39 +776,69 @@ export default function CommitPanel(): JSX.Element {
   return (
     <div className="flex flex-col h-full">
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
-      {/* Top bar: bulk-discard trash + summary of pending changes */}
-      <div className="relative flex items-center gap-2 px-2 h-9 bg-base-800 border-b border-edge shrink-0">
-        <button
-          onClick={() => void discardChecked()}
-          disabled={checkedFiles.length === 0 || working}
-          title={
-            checkedFiles.length
-              ? `Discard changes in ${checkedFiles.length} selected file(s)`
-              : 'Tick files below, then discard their changes'
-          }
-          className="flex items-center justify-center w-7 h-7 rounded border border-edge text-bad hover:bg-bad/15 disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <TrashIcon />
-        </button>
+      {/* Top bar: what's pending and on which branch, the bulk-discard trash, and
+          the Path/Tree switch for both lists. */}
+      <div className="relative flex items-center gap-2 pl-3 pr-2 h-10 bg-base-800 border-b border-edge shrink-0">
         {working ? (
           <span className="flex items-center gap-1.5 text-[12px] text-accent truncate">
             <Spinner />
             {runningLabel(busyAction, 'Working…')}
           </span>
         ) : (
-          <span className="text-[12px] text-txt-muted truncate">
-            {checkedFiles.length > 0
-              ? `${checkedFiles.length} selected`
-              : `${staged.length + allUnstaged.length} change${
-                  staged.length + allUnstaged.length === 1 ? '' : 's'
+          <span className="min-w-0 flex items-center gap-1.5 text-[12.5px] text-txt truncate">
+            <span className="font-semibold text-txt-bright tabular-nums">
+              {checkedFiles.length > 0 ? checkedFiles.length : staged.length + allUnstaged.length}
+            </span>
+            <span className="text-txt-muted">
+              {checkedFiles.length > 0
+                ? 'selected'
+                : `file change${staged.length + allUnstaged.length === 1 ? '' : 's'}`}
+            </span>
+            {status?.branch && checkedFiles.length === 0 && (
+              <>
+                <span className="text-txt-muted">on</span>
+                <span className="inline-flex items-center gap-1 h-[20px] px-1.5 rounded-md bg-base-700 text-[11.5px] text-txt-bright truncate max-w-[160px]">
+                  <BranchIcon className="text-[11px] text-txt-muted shrink-0" />
+                  <span className="truncate">{status.branch}</span>
+                </span>
+              </>
+            )}
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-1.5 shrink-0">
+          {checkedFiles.length > 0 && (
+            <button
+              onClick={() => void discardChecked()}
+              disabled={working}
+              title={`Discard changes in ${checkedFiles.length} selected file(s)`}
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-bad/40 text-bad text-[11.5px] hover:bg-bad/10 disabled:opacity-30"
+            >
+              <TrashIcon className="text-[12px]" />
+              Discard
+            </button>
+          )}
+          <span className="flex rounded-md border border-edge overflow-hidden">
+            {(
+              [
+                ['path', ListIcon, 'Path view'],
+                ['tree', TreeIcon, 'Tree view']
+              ] as const
+            ).map(([v, Icon, label]) => (
+              <button
+                key={v}
+                onClick={() => changeView(v)}
+                title={label}
+                className={`inline-flex items-center justify-center w-7 h-6 text-[13px] ${
+                  view === v
+                    ? 'bg-accent/20 text-accent'
+                    : 'text-txt-muted hover:text-txt hover:bg-white/[0.05]'
                 }`}
+              >
+                <Icon />
+              </button>
+            ))}
           </span>
-        )}
-        {status?.branch && (
-          <span className="ml-auto px-1.5 py-0.5 rounded bg-base-600 text-[11px] text-txt truncate max-w-[150px]">
-            ⑂ {status.branch}
-          </span>
-        )}
+        </span>
         {/* Same indeterminate bar as the toolbar — git reports no percentage here either. */}
         {working && (
           <div className="absolute left-0 right-0 bottom-0 h-[2px] overflow-hidden bg-accent/15">
@@ -637,136 +941,167 @@ export default function CommitPanel(): JSX.Element {
         </>
       )}
 
-      {/* Unstaged + Staged share the remaining space; each list keeps a floor height. */}
+      {/* Unstaged + Staged share the remaining space; each open list keeps a floor height. */}
       <div className="flex flex-col flex-1 min-h-0">
         {/* Unstaged */}
-        <div className="flex items-center gap-2 px-2 h-7 bg-base-800 border-b border-edge shrink-0">
-          <input
-            type="checkbox"
-            checked={allChecked}
-            onChange={toggleAll}
-            disabled={unstaged.length === 0}
-            title="Select all for discard"
-            className="accent-accent disabled:opacity-30"
-          />
-          <span className="text-[11px] uppercase tracking-wide text-txt-muted">
-            Unstaged ({unstaged.length})
-          </span>
-          {unstaged.length > 0 && (
-            <button
-              onClick={() => void stage(unstaged.map((f) => f.path))}
-              disabled={working}
-              className={`ml-auto flex items-center gap-1 text-[10px] px-1.5 rounded border border-edge hover:bg-base-600 disabled:cursor-not-allowed ${
-                staging ? 'border-accent/50 text-accent' : 'text-txt-muted disabled:opacity-40'
-              }`}
-            >
-              {staging && <Spinner size={10} />}
-              {staging ? 'Staging…' : 'Stage all'}
-            </button>
-          )}
-        </div>
-        <div className="overflow-auto flex-1 min-h-[120px]">
-          {unstaged.length === 0 ? (
-            <div className="px-3 py-4 text-[11px] text-txt-muted/60 italic">
-              No unstaged changes
-            </div>
-          ) : (
-            unstaged.map((f) => (
-              <FileRow
-                key={`u-${f.path}`}
-                file={f}
-                selected={mode === 'working' && selectedPath === f.path && !selectedStaged}
-                onSelect={() => void selectWorkingFile(f.path, false)}
-                actionLabel="Stage"
-                onAction={() => void stage([f.path])}
-                onDiscard={() => {
-                  if (!confirmDiscard || window.confirm(`Discard changes in "${f.path}"?`))
-                    void discard([f])
+        <ListHeader
+          title="Unstaged"
+          count={unstaged.length}
+          open={unstagedOpen}
+          onToggle={() => setUnstagedOpen((o) => !o)}
+          lead={
+            unstaged.length > 0 && (
+              <input
+                type="checkbox"
+                checked={allChecked}
+                onChange={toggleAll}
+                title="Select all for discard"
+                className="accent-accent w-3.5 h-3.5 ml-1"
+              />
+            )
+          }
+          action={
+            unstaged.length > 0 && (
+              <button
+                onClick={() => void stage(unstaged.map((f) => f.path))}
+                disabled={working}
+                className={`${headerBtn} ${
+                  staging
+                    ? 'border-accent/50 text-accent'
+                    : 'border-good/40 text-good hover:bg-good/10'
+                }`}
+              >
+                {staging ? <Spinner size={10} /> : <PlusIcon className="text-[12px]" />}
+                {staging ? 'Staging…' : 'Stage all'}
+              </button>
+            )
+          }
+        />
+        {unstagedOpen && (
+          <div className="overflow-auto flex-1 min-h-[110px] py-0.5">
+            {unstaged.length === 0 ? (
+              <div className="flex items-center justify-center h-full min-h-[90px] text-[12px] text-txt-muted/60">
+                No unstaged changes
+              </div>
+            ) : (
+              <FileList
+                files={unstaged}
+                staged={false}
+                view={view}
+                isSelected={(f) => mode === 'working' && selectedPath === f.path && !selectedStaged}
+                onSelect={(f) => void selectWorkingFile(f.path, false)}
+                onAction={(paths) => void stage(paths)}
+                onDiscard={(files) => {
+                  const label =
+                    files.length === 1
+                      ? `Discard changes in "${files[0].path}"?`
+                      : `Discard changes in ${files.length} files? This cannot be undone.`
+                  if (!confirmDiscard || window.confirm(label)) void discard(files)
                 }}
-                onContext={(e) => openFileMenu(e, f, false)}
-                checked={checked.has(f.path)}
-                onCheck={() => toggleChecked(f.path)}
+                onContext={(e, f) => openFileMenu(e, f, false)}
+                checked={checked}
+                onCheck={toggleChecked}
                 disabled={working}
               />
-            ))
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* Staged */}
-        <div className="flex items-center justify-between px-2 h-7 bg-base-800 border-y border-edge shrink-0">
-          <span className="text-[11px] uppercase tracking-wide text-txt-muted">
-            Staged ({staged.length})
-          </span>
-          {staged.length > 0 && (
-            <button
-              onClick={() => void unstage(staged.map((f) => f.path))}
-              disabled={working}
-              className={`flex items-center gap-1 text-[10px] px-1.5 rounded border border-edge hover:bg-base-600 disabled:cursor-not-allowed ${
-                unstaging ? 'border-accent/50 text-accent' : 'text-txt-muted disabled:opacity-40'
-              }`}
-            >
-              {unstaging && <Spinner size={10} />}
-              {unstaging ? 'Unstaging…' : 'Unstage all'}
-            </button>
-          )}
-        </div>
-        <div className="overflow-auto flex-1 min-h-[120px]">
-          {staged.length === 0 ? (
-            <div className="px-3 py-4 text-[11px] text-txt-muted/60 italic">No staged changes</div>
-          ) : (
-            staged.map((f) => (
-              <FileRow
-                key={`s-${f.path}`}
-                file={f}
-                selected={mode === 'working' && selectedPath === f.path && selectedStaged}
-                onSelect={() => void selectWorkingFile(f.path, true)}
-                actionLabel="Unstage"
-                onAction={() => void unstage([f.path])}
-                onContext={(e) => openFileMenu(e, f, true)}
+        <ListHeader
+          title="Staged"
+          count={staged.length}
+          tone="good"
+          open={stagedOpen}
+          onToggle={() => setStagedOpen((o) => !o)}
+          action={
+            staged.length > 0 && (
+              <button
+                onClick={() => void unstage(staged.map((f) => f.path))}
+                disabled={working}
+                className={`${headerBtn} ${
+                  unstaging
+                    ? 'border-accent/50 text-accent'
+                    : 'border-edge text-txt-muted hover:text-txt hover:bg-white/[0.05]'
+                }`}
+              >
+                {unstaging ? <Spinner size={10} /> : <MinusIcon className="text-[12px]" />}
+                {unstaging ? 'Unstaging…' : 'Unstage all'}
+              </button>
+            )
+          }
+        />
+        {stagedOpen && (
+          <div className="overflow-auto flex-1 min-h-[110px] py-0.5">
+            {staged.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-1 h-full min-h-[90px] text-[12px] text-txt-muted/60">
+                No staged changes
+                {unstaged.length > 0 && (
+                  <span className="text-[11px] text-txt-muted/50">
+                    Use + on a file, or Stage all
+                  </span>
+                )}
+              </div>
+            ) : (
+              <FileList
+                files={staged}
+                staged={true}
+                view={view}
+                isSelected={(f) => mode === 'working' && selectedPath === f.path && selectedStaged}
+                onSelect={(f) => void selectWorkingFile(f.path, true)}
+                onAction={(paths) => void unstage(paths)}
+                onContext={(e, f) => openFileMenu(e, f, true)}
                 disabled={working}
               />
-            ))
-          )}
-        </div>
+            )}
+          </div>
+        )}
+        {/* Both lists folded: keep the commit box at the bottom. */}
+        {!unstagedOpen && !stagedOpen && <div className="flex-1" />}
       </div>
 
       {/* Commit message: one-line summary + optional multi-line description */}
-      <div className="border-t border-edge p-2 shrink-0 bg-base-800">
-        {ai.enabled && (
-          <div className="flex justify-end gap-1.5 mb-1">
-            <button
-              onClick={() => (aiReady ? void composeCommits() : openSettings(true, 'ai'))}
-              disabled={aiBusy !== null || (aiReady && !isDirty)}
-              title={
-                !aiReady
-                  ? 'Add a provider API key in Settings → AI first'
-                  : !isDirty
-                    ? 'Nothing to split up yet'
-                    : 'Split everything uncommitted into several coherent commits'
-              }
-              className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-edge text-txt-muted hover:bg-base-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {composing ? <Spinner /> : <SparkleIcon />}
-              {composing ? 'Composing…' : 'Compose commits'}
-            </button>
-            <button
-              onClick={() => (aiReady ? void doGenerate() : openSettings(true, 'ai'))}
-              disabled={aiBusy !== null || (aiReady && staged.length === 0)}
-              title={
-                !aiReady
-                  ? 'Add a provider API key in Settings → AI first'
-                  : staged.length === 0
-                    ? 'Stage the changes you want described'
-                    : 'Write the summary and description from the staged diff'
-              }
-              className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-edge text-txt-muted hover:bg-base-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {generating ? <Spinner /> : <SparkleIcon />}
-              {generating ? 'Generating…' : 'Generate message'}
-            </button>
-          </div>
-        )}
-        <div className="relative rounded border border-edge bg-base-900 focus-within:border-accent overflow-hidden">
+      <div className="border-t border-edge px-3 pt-2.5 pb-3 shrink-0 bg-base-800">
+        <div className="flex items-center gap-1.5 mb-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-txt-muted">
+            {amend ? 'Amend commit' : 'Commit'}
+          </span>
+          {ai.enabled && (
+            <span className="ml-auto flex gap-1.5">
+              <button
+                onClick={() => (aiReady ? void composeCommits() : openSettings(true, 'ai'))}
+                disabled={aiBusy !== null || (aiReady && !isDirty)}
+                title={
+                  !aiReady
+                    ? 'Add a provider API key in Settings → AI first'
+                    : !isDirty
+                      ? 'Nothing to split up yet'
+                      : 'Split everything uncommitted into several coherent commits'
+                }
+                className={`${headerBtn} border-edge text-txt-muted hover:text-accent hover:border-accent/50`}
+              >
+                {composing ? <Spinner /> : <SparkleIcon />}
+                {composing ? 'Composing…' : 'Compose'}
+              </button>
+              <button
+                onClick={() => (aiReady ? void doGenerate() : openSettings(true, 'ai'))}
+                disabled={aiBusy !== null || (aiReady && staged.length === 0)}
+                title={
+                  !aiReady
+                    ? 'Add a provider API key in Settings → AI first'
+                    : staged.length === 0
+                      ? 'Stage the changes you want described'
+                      : 'Write the summary and description from the staged diff'
+                }
+                className={`${headerBtn} border-edge text-txt-muted hover:text-accent hover:border-accent/50`}
+              >
+                {generating ? <Spinner /> : <SparkleIcon />}
+                {generating ? 'Generating…' : 'Generate message'}
+              </button>
+            </span>
+          )}
+        </div>
+        <div className="relative rounded-lg border border-edge bg-base-900 transition-shadow focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 overflow-hidden">
           {/* Something is actually happening — say so, and lock the fields. */}
           {(generating || naming) && (
             <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-base-900/80 backdrop-blur-[1px]">
@@ -776,19 +1111,32 @@ export default function CommitPanel(): JSX.Element {
               </span>
             </div>
           )}
-          <input
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            onKeyDown={(e) => {
-              // Ctrl/Cmd+Enter commits from either field (no accidental plain-Enter commit).
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault()
-                void doCommit()
-              }
-            }}
-            placeholder="Commit summary"
-            className="w-full bg-transparent px-2 py-1.5 text-[12px] text-txt outline-none select-text border-b border-edge"
-          />
+          <div className="relative border-b border-edge">
+            <input
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              onKeyDown={(e) => {
+                // Ctrl/Cmd+Enter commits from either field (no accidental plain-Enter commit).
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault()
+                  void doCommit()
+                }
+              }}
+              placeholder="Summary (required)"
+              className="w-full bg-transparent pl-2.5 pr-10 py-2 text-[12.5px] text-txt-bright outline-none select-text placeholder:text-txt-muted/60"
+            />
+            {/* Git's convention: keep the subject line within 72 characters. */}
+            {summary.length > 0 && (
+              <span
+                title="Keep the summary within 72 characters"
+                className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-[10.5px] tabular-nums ${
+                  summary.length > 72 ? 'text-warn' : 'text-txt-muted/60'
+                }`}
+              >
+                {72 - summary.length}
+              </span>
+            )}
+          </div>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -800,13 +1148,15 @@ export default function CommitPanel(): JSX.Element {
             }}
             placeholder="Description"
             rows={3}
-            className="w-full resize-none bg-transparent px-2 py-1.5 text-[12px] text-txt outline-none select-text"
+            className="w-full resize-none bg-transparent px-2.5 py-2 text-[12.5px] text-txt outline-none select-text placeholder:text-txt-muted/60"
           />
         </div>
-        <div className="mt-2 flex items-center gap-4">
+        <div className="mt-2.5 flex items-center gap-4">
           <label
-            className={`flex items-center gap-1.5 text-[11px] select-none w-fit ${
-              headCommit ? 'text-txt-muted cursor-pointer' : 'text-txt-muted/40 cursor-not-allowed'
+            className={`flex items-center gap-1.5 text-[11.5px] select-none w-fit ${
+              headCommit
+                ? 'text-txt-muted cursor-pointer hover:text-txt'
+                : 'text-txt-muted/40 cursor-not-allowed'
             }`}
             title={
               headCommit
@@ -819,35 +1169,37 @@ export default function CommitPanel(): JSX.Element {
               checked={amend}
               disabled={!headCommit}
               onChange={toggleAmend}
-              className="accent-accent"
+              className="accent-accent w-3.5 h-3.5"
             />
             Amend last commit
           </label>
           {signingConfigured && (
             <label
-              className="flex items-center gap-1.5 text-[11px] text-txt-muted cursor-pointer select-none w-fit"
+              className="flex items-center gap-1.5 text-[11.5px] text-txt-muted cursor-pointer select-none w-fit hover:text-txt"
               title="Sign this commit with your configured GPG/SSH key (git commit -S)"
             >
               <input
                 type="checkbox"
                 checked={sign}
                 onChange={() => setSign((v) => !v)}
-                className="accent-accent"
+                className="accent-accent w-3.5 h-3.5"
               />
               Sign
             </label>
           )}
+          <span className="ml-auto text-[10.5px] text-txt-muted/50">Ctrl+Enter to commit</span>
         </div>
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2.5 flex gap-2">
           <div className="flex">
             <button
               onClick={() => void doStash()}
               disabled={!isDirty || working}
-              title="Stash all changes (includes untracked)"
-              className={`py-1.5 px-3 border border-edge text-[12px] text-txt hover:bg-base-600 disabled:opacity-40 disabled:cursor-not-allowed ${
-                ai.enabled ? 'rounded-l border-r-0' : 'rounded'
+              title="Stash all changes (includes untracked) — the summary becomes its label"
+              className={`inline-flex items-center gap-1.5 h-8 px-3 border border-edge bg-base-700/60 text-[12px] text-txt hover:bg-base-600 disabled:opacity-40 disabled:cursor-not-allowed ${
+                ai.enabled ? 'rounded-l-md border-r-0' : 'rounded-md'
               }`}
             >
+              <StashIcon className="text-[13px] text-txt-muted" />
               Stash
             </button>
             {ai.enabled && (
@@ -859,7 +1211,7 @@ export default function CommitPanel(): JSX.Element {
                     ? 'Name this stash from the uncommitted changes'
                     : 'Add a provider API key in Settings → AI first'
                 }
-                className="py-1.5 px-2 rounded-r border border-edge text-txt-muted hover:bg-base-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex items-center h-8 px-2 rounded-r-md border border-edge bg-base-700/60 text-txt-muted hover:text-accent hover:bg-base-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {naming ? <Spinner /> : <SparkleIcon />}
               </button>
@@ -868,14 +1220,23 @@ export default function CommitPanel(): JSX.Element {
           <button
             onClick={() => void doCommit()}
             disabled={!canCommit || working}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-accent text-white text-[12px] font-medium hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              canCommit
+                ? undefined
+                : staged.length === 0 && !amend
+                  ? 'Stage some changes first'
+                  : 'Write a summary first'
+            }
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-md bg-accent text-white text-[12.5px] font-medium shadow-sm hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {committing && <Spinner />}
             {committing
               ? 'Committing…'
               : amend
-                ? 'Amend'
-                : `Commit ${staged.length ? `(${staged.length})` : ''}`}
+                ? 'Amend last commit'
+                : staged.length
+                  ? `Commit ${staged.length} file${staged.length === 1 ? '' : 's'}`
+                  : 'Commit'}
           </button>
         </div>
       </div>

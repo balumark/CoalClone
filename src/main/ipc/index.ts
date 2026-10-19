@@ -32,7 +32,8 @@ import {
   generatePullRequest,
   generateStashMessage,
   resolveConflictFile,
-  setAiKey
+  setAiKey,
+  testAiConnection
 } from '../ai/aiService'
 import {
   addToAgent,
@@ -392,6 +393,14 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.AiSetKey, async (_e, provider: AiProvider, key: string | null) => {
     try {
       return ok(await setAiKey(provider, key))
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  ipcMain.handle(IPC.AiTest, async () => {
+    try {
+      return ok(await testAiConnection())
     } catch (e) {
       return fail(e)
     }

@@ -7,6 +7,7 @@ import type {
   AiKeyStatus,
   AiProvider,
   AiPullRequest,
+  AiTestResult,
   AppSettings,
   AppSettingsPatch,
   BlameLine,
@@ -220,6 +221,7 @@ const api = {
     status: (): Promise<Result<AiKeyStatus>> => ipcRenderer.invoke(IPC.AiStatus),
     setKey: (provider: AiProvider, key: string | null): Promise<Result<AiKeyStatus>> =>
       ipcRenderer.invoke(IPC.AiSetKey, provider, key),
+    test: (): Promise<Result<AiTestResult>> => ipcRenderer.invoke(IPC.AiTest),
     commitMessage: (): Promise<Result<AiCommitMessage>> => ipcRenderer.invoke(IPC.AiCommitMessage),
     explainCommit: (hash: string): Promise<Result<string>> =>
       ipcRenderer.invoke(IPC.AiExplainCommit, hash),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildTree, matchRange, matches } from '../src/renderer/lib/refTree'
+import { buildTree, compactTree, matchRange, matches } from '../src/renderer/lib/refTree'
 
 const names = ['main', 'feature/chat', 'feature/Chat-2', 'fix/x', 'feature/team/v2', 'development']
 
@@ -31,6 +31,29 @@ describe('buildTree', () => {
     const [folder] = buildTree(['feature/api'], (n) => n, 'origin/'.length)
     expect(folder.offset).toBe(7)
     expect(folder.children[0].offset).toBe(7 + 'feature/'.length)
+  })
+})
+
+describe('compactTree', () => {
+  it('folds single-child folder chains but keeps branching folders and leaves', () => {
+    const tree = compactTree(
+      buildTree(
+        ['src/main/ai/aiService.ts', 'src/renderer/a.tsx', 'src/renderer/b.tsx', 'x.md'],
+        (n) => n
+      )
+    )
+    expect(tree.map((n) => n.name)).toEqual(['src', 'x.md'])
+    const src = tree[0]
+    expect(src.children.map((n) => n.name)).toEqual(['main/ai', 'renderer'])
+    expect(src.children[0]).toMatchObject({ path: 'src/main/ai', count: 1 })
+    expect(src.children[0].children[0].name).toBe('aiService.ts')
+    expect(src.children[1].children.map((n) => n.name)).toEqual(['a.tsx', 'b.tsx'])
+  })
+
+  it('folds a chain that starts at the root', () => {
+    const [only] = compactTree(buildTree(['a/b/c/file.txt'], (n) => n))
+    expect(only.name).toBe('a/b/c')
+    expect(only.children[0].item).toBe('a/b/c/file.txt')
   })
 })
 

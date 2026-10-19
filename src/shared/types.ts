@@ -338,6 +338,16 @@ export interface AiKeyStatus {
   encryptionAvailable: boolean
 }
 
+/** Outcome of Settings → AI "Test connection" (a failure comes back as a Result error). */
+export interface AiTestResult {
+  provider: AiProvider
+  model: string
+  /** Round-trip time of the test request. */
+  ms: number
+  /** What the model answered, trimmed — proof it really generated something. */
+  reply: string
+}
+
 /** A generated commit message, split the way the Commit panel shows it. */
 export interface AiCommitMessage {
   summary: string
