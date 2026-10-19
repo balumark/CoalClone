@@ -55,8 +55,23 @@ Without a token every source still works — type owner/repo and the dialog buil
 ## Profiles
 
 `userData/profiles.json` (`main/profiles.ts`) holds `{activeId, profiles: [{id, name, sshKeyPath,
-gitName, gitEmail, settings}]}`. A pre-profiles `settings.json` is migrated into a "Default"
+gitName, gitEmail, settings, recent, workspace}]}`. A pre-profiles `settings.json` is migrated into a "Default"
 profile on first read.
+
+- **Projects are per profile, GitKraken-style.** `recent` (the Repositories list — `repoManager`
+  just delegates to `getActiveRecent/setActiveRecent`) and `workspace` (`{tabs, active}`, the open
+  tabs) live in the profile. The renderer owns the tabs and pushes them with
+  `profiles:set-workspace` after every open/close (`persistWorkspace`); `ProfileState.workspace`
+  carries the active profile's back. Launch (`reopenLastRepo`) and every switch call
+  `restoreWorkspace`, which drops tabs whose repository no longer opens.
+  The old app-wide `recent-repos.json` is copied into each profile lacking a `recent` field.
+- **A switch is a full swap** (`applyProfileSwitch` in the store, also used when deleting the
+  active profile): persist the old workspace *before* `profiles:activate` (afterwards it would land
+  in the new profile), close the repo, clear tabs/host tokens/AI status, re-read settings, recent
+  and the SSH view, then restore the new profile's tabs. `pickerOpen` survives so switching inside
+  the clone window keeps you there.
+- **AI keys are per profile too**: `ai-credentials.json` is `{profileId: {provider: blob}}`; the
+  old flat `{provider: blob}` file is detected by its provider keys and copied to every profile.
 
 - **`settings.ts` now reads/writes the ACTIVE profile's settings** and keeps owning the defaults
   and the merge, so every existing `getSettings()`/`saveSettings()` caller follows the profile
@@ -82,8 +97,8 @@ A regression test commits with `EDITOR`, `GIT_ASKPASS` and `GIT_EXTERNAL_DIFF` s
 - **The commit identity is written `--local`, and only on repos we made ourselves** (clone/create).
   Silently rewriting the identity of a repo the user merely opened would be a nasty surprise.
 
-Switching profile therefore swaps the SSH key, the identity used for new repos, and the whole
-settings block (accent, pull mode, AI config…) in one move — the renderer re-reads settings and
-re-applies the accent in `activateProfile`.
+Switching profile therefore swaps the SSH key, the identity used for new repos, the whole
+settings block (accent, pull mode, AI config…), the host tokens, the AI keys, the recent list and
+the open tabs in one move.
 
 Related: [[settings]], [[ssh-auth]], [[git-service]], [[ipc-contract]], [[ai-assistance]].

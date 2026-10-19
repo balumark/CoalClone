@@ -10,6 +10,7 @@ import type {
   HostQuery,
   NewRepoOptions,
   Profile,
+  ProfileWorkspace,
   ConflictResolution,
   FileStatus,
   GitIdentity,
@@ -33,7 +34,13 @@ import {
   resolveConflictFile,
   setAiKey
 } from '../ai/aiService'
-import { addToAgent, generateKey, sshEnvironment, useKeyForRepo } from '../git/sshService'
+import {
+  addToAgent,
+  deleteKey,
+  generateKey,
+  sshEnvironment,
+  useKeyForRepo
+} from '../git/sshService'
 import { getAvatar } from '../avatar'
 import { RepoWatcher } from '../git/watcher'
 import {
@@ -49,7 +56,8 @@ import {
   deleteProfile,
   getActiveProfile,
   getProfileState,
-  saveProfile
+  saveProfile,
+  setActiveWorkspace
 } from '../profiles'
 
 // Registers every ipcMain.handle channel and bridges git operations to the
@@ -110,6 +118,20 @@ function broadcast(channel: string, payload?: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(channel, payload)
   }
+}
+
+let lastFocusRefresh = 0
+
+/**
+ * The window came back to the front — most likely from the editor or terminal
+ * the user just changed the repo in. Refresh, like GitKraken does; this is the
+ * safety net for whatever the watcher can't see (e.g. a share that delivers no
+ * file events). Throttled so alt-tabbing back and forth doesn't stack snapshots.
+ */
+export function notifyWindowFocus(): void {
+  if (!currentRef || Date.now() - lastFocusRefresh < 1000) return
+  lastFocusRefresh = Date.now()
+  broadcast(IPC.EvtRepoChanged)
 }
 
 /** Point git at the active profile's SSH key (called at boot and on switch). */
@@ -269,6 +291,15 @@ export function registerIpcHandlers(): void {
       const state = await activateProfile(id)
       await applyActiveProfile()
       return ok(state)
+    } catch (e) {
+      return fail(e)
+    }
+  })
+
+  ipcMain.handle(IPC.ProfilesSetWorkspace, async (_e, workspace: ProfileWorkspace) => {
+    try {
+      await setActiveWorkspace(workspace)
+      return ok(true)
     } catch (e) {
       return fail(e)
     }
@@ -777,6 +808,20 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.SshUseKeyForRepo, async (_e, keyPath: string | null) =>
     action('Set repository key', () => useKeyForRepo(keyPath))
+  )
+  ipcMain.handle(IPC.SshDeleteKey, async (_e, keyPath: string) =>
+    action('Delete SSH key', async () => {
+      await deleteKey(keyPath)
+      // A profile still pointing at the trashed key would make every clone/fetch
+      // fail with "no such identity" — fall back to ssh's default selection.
+      const { profiles } = await getProfileState()
+      for (const p of profiles) {
+        if (p.sshKeyPath && path.normalize(p.sshKeyPath) === path.normalize(keyPath)) {
+          await saveProfile({ id: p.id, sshKeyPath: null })
+        }
+      }
+      await applyActiveProfile()
+    })
   )
   ipcMain.handle(IPC.GitIdentityGet, async () => {
     try {

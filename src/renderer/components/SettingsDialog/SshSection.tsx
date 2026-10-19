@@ -15,6 +15,7 @@ function KeyCard({ k }: { k: SshKey }): JSX.Element {
   const copyText = useRepoStore((s) => s.copyText)
   const addKeyToAgent = useRepoStore((s) => s.addKeyToAgent)
   const pinRepoKey = useRepoStore((s) => s.pinRepoKey)
+  const deleteKey = useRepoStore((s) => s.deleteSshKey)
   const ref = useRepoStore((s) => s.ref)
 
   return (
@@ -73,6 +74,13 @@ function KeyCard({ k }: { k: SshKey }): JSX.Element {
               Use for this repo
             </button>
           ))}
+        <button
+          onClick={() => void deleteKey(k)}
+          title="Move this key pair to the trash"
+          className="ml-auto px-2 py-1 rounded text-[11px] border border-bad/40 text-bad hover:bg-bad/10"
+        >
+          Delete
+        </button>
       </div>
     </div>
   )
@@ -160,9 +168,12 @@ export default function SshSection(): JSX.Element {
   const ref = useRepoStore((s) => s.ref)
 
   if (!ssh) {
-    if (error) return <LoadFailure what="your SSH keys" error={error} onRetry={() => void reload()} />
+    if (error)
+      return <LoadFailure what="your SSH keys" error={error} onRetry={() => void reload()} />
     return (
-      <div className="text-[12px] text-txt-muted">{loading ? 'Reading ~/.ssh…' : 'Not loaded.'}</div>
+      <div className="text-[12px] text-txt-muted">
+        {loading ? 'Reading ~/.ssh…' : 'Not loaded.'}
+      </div>
     )
   }
 

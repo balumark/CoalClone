@@ -399,9 +399,20 @@ export interface Profile {
   gitEmail: string
 }
 
+/**
+ * The repositories a profile works with: its open tabs (in order) and which of
+ * them was in front. Restored on launch and whenever the profile is activated.
+ */
+export interface ProfileWorkspace {
+  tabs: RepoRef[]
+  active: string | null
+}
+
 export interface ProfileState {
   profiles: Profile[]
   activeId: string
+  /** The ACTIVE profile's open tabs — the other profiles' stay in main. */
+  workspace: ProfileWorkspace
 }
 
 // --- Hosting services --------------------------------------------------------

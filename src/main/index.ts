@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, nativeTheme } from 'electron'
 import path from 'path'
 import { APP_NAME, APP_ID } from '@shared/appInfo'
-import { registerIpcHandlers, disposeIpc, applyActiveProfile } from './ipc'
+import { registerIpcHandlers, disposeIpc, applyActiveProfile, notifyWindowFocus } from './ipc'
 
 // Set the app name as early as possible so every process (main + renderer/GPU/
 // utility helpers) is labelled "Coal Clone" — not "Electron" — in the OS task
@@ -33,6 +33,8 @@ function createWindow(): void {
   })
 
   win.on('ready-to-show', () => win.show())
+  // Coming back from the editor/terminal: pick up whatever changed meanwhile.
+  win.on('focus', notifyWindowFocus)
 
   win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)

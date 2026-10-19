@@ -12,7 +12,7 @@ Three Electron layers, with a shared typed contract between them (see [[ipc-cont
   - `ipc/index.ts` — registers every `ipcMain.handle` channel; wraps results as `Result<T>`.
   - `git/gitService.ts` — the ONLY code that touches git (see [[git-service]]).
   - `git/graph.ts` — pure commit-graph lane assignment (see [[commit-graph-algorithm]]).
-  - `git/watcher.ts` — chokidar watch on the repo → debounced `repo-changed` event.
+  - `git/watcher.ts` — chokidar poll of the git dir + native recursive watch of the working tree → debounced `repo-changed` event (plus a refresh on window focus).
   - `repo/repoManager.ts` — open-folder dialog + recent-repos persistence (userData).
 - **`src/preload/`** — `contextBridge` exposes a single typed `window.api` (no direct ipcRenderer in the UI).
 - **`src/renderer/`** — React UI, driven by the zustand store `store/useRepoStore.ts`.

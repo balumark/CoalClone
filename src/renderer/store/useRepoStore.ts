@@ -23,6 +23,8 @@ import type {
   MergeFile,
   NewRepoOptions,
   Profile,
+  ProfileState,
+  ProfileWorkspace,
   RemoteRepo,
   RemoteRepoList,
   PullOptions,
@@ -36,6 +38,7 @@ import type {
   ResetMode,
   Result,
   SshEnvironment,
+  SshKey,
   StashSaveOptions
 } from '@shared/types'
 
@@ -324,6 +327,8 @@ interface RepoState {
   }) => Promise<void>
   addKeyToAgent: (keyPath: string) => Promise<void>
   pinRepoKey: (keyPath: string | null) => Promise<void>
+  /** Move a key pair to the OS trash, after asking. */
+  deleteSshKey: (key: SshKey) => Promise<void>
   copyText: (text: string, what: string) => Promise<void>
   openExternal: (url: string) => Promise<void>
   identity: GitIdentity | null
@@ -456,7 +461,86 @@ function targetPath(opts: NewRepoOptions): string {
 
 /** Last segment of a path, either separator — no `path` module in the renderer. */
 function folderName(dir: string): string {
-  return dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || dir
+  return (
+    dir
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() || dir
+  )
+}
+
+/** Save the open tabs into the active profile, so they come back with it. */
+async function persistWorkspace(get: () => RepoState): Promise<void> {
+  const { tabs, ref } = get()
+  await window.api.profiles.setWorkspace({ tabs, active: ref?.path ?? null })
+}
+
+/**
+ * Bring back a profile's tabs: list them all, then open the one that was in
+ * front. A tab whose repository is gone is dropped and the next one tried.
+ * Expects no repository to be open (`ref === null`) when called.
+ */
+async function restoreWorkspace(
+  set: (partial: Partial<RepoState>) => void,
+  get: () => RepoState,
+  ws: ProfileWorkspace
+): Promise<void> {
+  set({ tabs: ws.tabs })
+  const order = [ws.active, ...ws.tabs.map((t) => t.path)].filter(
+    (p, i, all): p is string => !!p && all.indexOf(p) === i
+  )
+  for (const path of order) {
+    await get().openRepo(path)
+    if (get().ref) return
+    set({ tabs: get().tabs.filter((t) => t.path !== path) })
+  }
+  await persistWorkspace(get)
+}
+
+/**
+ * Main has just made another profile active. Everything on screen that belongs
+ * to a profile — the open repository and tabs, the recent list, settings, host
+ * tokens, AI keys, the SSH view — is swapped for the new profile's.
+ */
+async function applyProfileSwitch(
+  set: (partial: Partial<RepoState>) => void,
+  get: () => RepoState,
+  state: ProfileState
+): Promise<void> {
+  // Switching from the Repositories screen (e.g. inside the clone window)
+  // should leave the user there, with the new profile's tabs behind it.
+  const pickerOpen = get().pickerOpen
+  await window.api.repo.close()
+  set({
+    profiles: state.profiles,
+    activeProfileId: state.activeId,
+    ref: null,
+    snapshot: null,
+    diff: null,
+    commitDiffs: null,
+    selectedCommit: null,
+    selectedPath: null,
+    soloBranch: null,
+    mode: 'working',
+    tabs: [],
+    hostTokens: null,
+    hostRepos: null,
+    hostAccount: null,
+    hostError: null,
+    aiStatus: null
+  })
+  // The profile owns the settings too, so re-read them and re-apply the theme.
+  const settings = unwrap(get, await call(() => window.api.settings.get()))
+  if (settings) {
+    set({ settings })
+    applyAccent(settings.accent)
+    scheduleAutoFetch(get)
+    if (settings.ai.enabled) void get().loadAiStatus()
+  }
+  if (get().ssh) void get().loadSsh()
+  set({ recent: unwrap(get, await window.api.repo.recent()) ?? [] })
+  await restoreWorkspace(set, get, state.workspace)
+  if (pickerOpen) set({ pickerOpen: true })
 }
 
 /** git sorts paths bytewise; localeCompare would reorder on every reconcile. */
@@ -606,7 +690,10 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     const res = await window.api.repo.recent()
     const recent = unwrap(get, res) ?? []
     set({ recent })
-    await get().loadProfiles()
+    const profileState = unwrap(get, await call(() => window.api.profiles.get()))
+    if (profileState) {
+      set({ profiles: profileState.profiles, activeProfileId: profileState.activeId })
+    }
     // Live refresh when the repo changes on disk.
     window.api.events.onRepoChanged(() => {
       if (get().ref) void get().refresh()
@@ -619,8 +706,12 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     })
     set({ booted: true })
     scheduleAutoFetch(get)
-    // Pick up where the user left off, unless they turned that off.
-    if (get().settings.reopenLastRepo && recent[0]) await get().openRepo(recent[0].path)
+    // Pick up where the user left off — the profile's tabs, or failing that its
+    // most recent repository — unless they turned that off.
+    if (!get().settings.reopenLastRepo) return
+    if (profileState?.workspace.tabs.length)
+      await restoreWorkspace(set, get, profileState.workspace)
+    else if (recent[0]) await get().openRepo(recent[0].path)
   },
 
   openDialog: async () => {
@@ -655,6 +746,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
       ? get().tabs.map((t) => (t.path === ref.path ? ref : t))
       : [...get().tabs, ref]
     set({ ref, tabs, snapshot: null })
+    void persistWorkspace(get)
     const recentRes = await window.api.repo.recent()
     set({ recent: unwrap(get, recentRes) ?? get().recent })
     set({ loadingMsg: 'Reading commit history…' })
@@ -685,7 +777,10 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     const tabs = get().tabs.filter((t) => t.path !== repoPath)
     const wasActive = get().ref?.path === repoPath
     set({ tabs })
-    if (!wasActive) return
+    if (!wasActive) {
+      void persistWorkspace(get)
+      return
+    }
     if (tabs.length) {
       await get().activateTab(tabs[tabs.length - 1].path)
     } else {
@@ -712,6 +807,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
       mode: 'working',
       tabs: get().tabs.filter((t) => t.path !== path)
     })
+    void persistWorkspace(get)
   },
 
   // --- profiles ---
@@ -725,21 +821,20 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     if (state) set({ profiles: state.profiles, activeProfileId: state.activeId })
   },
   deleteProfile: async (id) => {
+    const before = get().activeProfileId
     const state = unwrap(get, await call(() => window.api.profiles.remove(id)))
-    if (state) set({ profiles: state.profiles, activeProfileId: state.activeId })
+    if (!state) return
+    // Deleting the active profile moves main onto another one — follow it.
+    if (state.activeId !== before) await applyProfileSwitch(set, get, state)
+    else set({ profiles: state.profiles, activeProfileId: state.activeId })
   },
   activateProfile: async (id) => {
+    if (id === get().activeProfileId) return
+    // Make sure the profile we're leaving remembers exactly what was open.
+    await persistWorkspace(get)
     const state = unwrap(get, await call(() => window.api.profiles.activate(id)))
     if (!state) return
-    set({ profiles: state.profiles, activeProfileId: state.activeId })
-    // The profile owns the settings too, so re-read them and re-apply the theme.
-    const settings = unwrap(get, await call(() => window.api.settings.get()))
-    if (settings) {
-      set({ settings })
-      applyAccent(settings.accent)
-      scheduleAutoFetch(get)
-      if (settings.ai.enabled) void get().loadAiStatus()
-    }
+    await applyProfileSwitch(set, get, state)
     const name = state.profiles.find((p) => p.id === state.activeId)?.name ?? 'profile'
     get().pushToast({ kind: 'info', message: `Switched to ${name}` })
   },
@@ -1562,6 +1657,27 @@ export const useRepoStore = create<RepoState>((set, get) => ({
       })
       await get().loadSsh()
     }
+  },
+  deleteSshKey: async (key) => {
+    const users = get()
+      .profiles.filter((p) => p.sshKeyPath === key.path)
+      .map((p) => `"${p.name}"`)
+    const accepted = await get().askConfirm({
+      title: `Delete SSH key "${key.name}"?`,
+      message:
+        `${key.path}${key.publicKey ? ' and its .pub' : ''} will be moved to the trash.` +
+        (users.length
+          ? `\n\nThe ${users.join(', ')} profile(s) use this key and will fall back to ssh's default key.`
+          : '') +
+        (key.usedByRepo ? '\n\nThis repository is pinned to it — the pin is removed.' : '') +
+        '\n\nRemember to remove the public key from your git host too.',
+      okLabel: 'Delete'
+    })
+    if (!accepted) return
+    const res = await call(() => window.api.ssh.deleteKey(key.path))
+    if (unwrap(get, res) === null) return
+    get().pushToast({ kind: 'info', message: `${key.name} moved to the trash` })
+    await Promise.all([get().loadSsh(), get().loadProfiles()])
   },
   copyText: async (text, what) => {
     await navigator.clipboard.writeText(text)

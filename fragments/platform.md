@@ -111,6 +111,15 @@ watched the **whole working tree**. On a real repo with `vendor/`/`node_modules/
 UNC share, emitted as thousands of **UnhandledPromiseRejectionWarning**s. Fix: watch **only
 `.git`** (its index/refs/HEAD/logs cover every git-state transition), force `usePolling: true`
 (avoids `fs.watch` entirely → no EISDIR), ignore `.git/objects|lfs`/`*.lock`, and attach an
-`error` handler so nothing escapes as an unhandled rejection. Trade-off: a purely-working-tree
-edit made outside the app isn't auto-detected (the store refreshes after its own mutations).
+`error` handler so nothing escapes as an unhandled rejection.
+
+**Working-tree edits are now seen too** (that trade-off made "edited in VS Code, app didn't notice
+until reload" a regular complaint). Alongside the `.git` poll, `RepoWatcher` opens ONE native
+`fs.watch(repo, { recursive: true })` — a single OS-level handle (ReadDirectoryChangesW/FSEvents/
+inotify on Node 20), NOT chokidar's per-file watches, so it doesn't reintroduce the EISDIR storm;
+`.git/` and `node_modules/` events are dropped, and events while paused are ignored. On a share
+that can't deliver events it throws/errors once and is silently dropped. Safety net for that case:
+`win.on('focus')` → `notifyWindowFocus()` (ipc/index.ts, throttled 1s) broadcasts `repo-changed`,
+GitKraken-style. The git dir is resolved from a `.git` FILE (`gitdir:` + `commondir`) for linked
+worktrees/submodules — watching the file itself saw nothing. Covered by `test/watcher.test.ts`.
 Related: [[git-service]], [[tech-stack]], [[esm-preload-path]].

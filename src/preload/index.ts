@@ -23,6 +23,7 @@ import type {
   NewRepoOptions,
   Profile,
   ProfileState,
+  ProfileWorkspace,
   PullOptions,
   PushOptions,
   RebaseItem,
@@ -180,7 +181,9 @@ const api = {
     addToAgent: (keyPath: string): Promise<Result<void>> =>
       ipcRenderer.invoke(IPC.SshAddToAgent, keyPath),
     useKeyForRepo: (keyPath: string | null): Promise<Result<void>> =>
-      ipcRenderer.invoke(IPC.SshUseKeyForRepo, keyPath)
+      ipcRenderer.invoke(IPC.SshUseKeyForRepo, keyPath),
+    deleteKey: (keyPath: string): Promise<Result<void>> =>
+      ipcRenderer.invoke(IPC.SshDeleteKey, keyPath)
   },
   identity: {
     get: (): Promise<Result<GitIdentity>> => ipcRenderer.invoke(IPC.GitIdentityGet),
@@ -204,7 +207,9 @@ const api = {
     remove: (id: string): Promise<Result<ProfileState>> =>
       ipcRenderer.invoke(IPC.ProfilesDelete, id),
     activate: (id: string): Promise<Result<ProfileState>> =>
-      ipcRenderer.invoke(IPC.ProfilesActivate, id)
+      ipcRenderer.invoke(IPC.ProfilesActivate, id),
+    setWorkspace: (workspace: ProfileWorkspace): Promise<Result<boolean>> =>
+      ipcRenderer.invoke(IPC.ProfilesSetWorkspace, workspace)
   },
   settings: {
     get: (): Promise<Result<AppSettings>> => ipcRenderer.invoke(IPC.SettingsGet),

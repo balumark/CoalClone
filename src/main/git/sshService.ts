@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { promises as fs } from 'fs'
 import os from 'os'
 import path from 'path'
+import { shell } from 'electron'
 import type { SshKey, SshEnvironment } from '@shared/types'
 import { GitError, gitService } from './gitService'
 
@@ -43,7 +44,9 @@ function run(
 }
 
 /** `ssh-keygen -l -f <key>` → "256 SHA256:xxxx comment (ED25519)". */
-async function describeKey(keyPath: string): Promise<Pick<SshKey, 'fingerprint' | 'type' | 'comment'>> {
+async function describeKey(
+  keyPath: string
+): Promise<Pick<SshKey, 'fingerprint' | 'type' | 'comment'>> {
   const { code, stdout } = await run('ssh-keygen', ['-l', '-f', keyPath], 8000)
   const m = code === 0 ? stdout.trim().match(/^\d+\s+(\S+)\s+(.*?)\s*\(([^)]+)\)$/) : null
   if (!m) return { fingerprint: null, type: null, comment: null }
@@ -179,6 +182,39 @@ export async function addToAgent(keyPath: string): Promise<void> {
       'SSH_AGENT'
     )
   }
+}
+
+/**
+ * Delete a key pair from ~/.ssh. It goes to the OS trash (private + .pub), not
+ * into oblivion — a deleted private key can't be regenerated. On the way out it
+ * is dropped from the agent and unpinned from the open repo if it was pinned.
+ * Only keys this module itself lists can be deleted, so a crafted path can't
+ * reach anything outside ~/.ssh.
+ */
+export async function deleteKey(keyPath: string): Promise<void> {
+  const dir = sshDir()
+  const name = path.basename(keyPath)
+  if (
+    path.normalize(path.dirname(keyPath)) !== path.normalize(dir) ||
+    !(await keyFiles()).includes(name)
+  ) {
+    throw new GitError(`${keyPath} is not an SSH key in ${dir}.`, 'SSH_NO_KEY')
+  }
+  const target = path.join(dir, name)
+  const pub = `${target}.pub`
+  const hasPub = await fs
+    .access(pub)
+    .then(() => true)
+    .catch(() => false)
+  // Best effort — no agent, or a key that was never loaded, is fine.
+  await run('ssh-add', ['-d', hasPub ? pub : target], 10000)
+  const pinned = gitService.currentRepo
+    ? keyFromSshCommand(await gitService.getConfig('core.sshCommand', 'local'))
+    : null
+  if (pinned && path.normalize(pinned) === path.normalize(target))
+    await gitService.setRepoSshCommand(null)
+  await shell.trashItem(target)
+  if (hasPub) await shell.trashItem(pub)
 }
 
 /**

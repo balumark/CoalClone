@@ -23,6 +23,7 @@ export const IPC = {
   ProfilesSave: 'profiles:save',
   ProfilesDelete: 'profiles:delete',
   ProfilesActivate: 'profiles:activate',
+  ProfilesSetWorkspace: 'profiles:set-workspace',
 
   // Read
   GitStatus: 'git:status',
@@ -92,6 +93,7 @@ export const IPC = {
   SshGenerateKey: 'ssh:generate-key',
   SshAddToAgent: 'ssh:add-to-agent',
   SshUseKeyForRepo: 'ssh:use-key-for-repo',
+  SshDeleteKey: 'ssh:delete-key',
   GitIdentityGet: 'git:identity-get',
   GitIdentitySet: 'git:identity-set',
 

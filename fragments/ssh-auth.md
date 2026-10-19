@@ -53,3 +53,9 @@ store. External links go through `shell:open-external`, which only accepts `http
 The WSL caveat still applies and is stated in the UI: this app runs the **OS** git/ssh, so a repo
 you normally use inside WSL authenticates with Windows' `C:\Users\<you>\.ssh`, not WSL's.
 Related: [[remote-diagnostics]], [[settings]], [[platform]], [[ipc-contract]].
+
+**Deleting a key** (`ssh:delete-key`, the red Delete on each KeyCard) moves the private key and its
+`.pub` to the OS trash via `shell.trashItem` — never a hard delete, a private key can't be
+recreated. `deleteKey` only accepts a basename that `keyFiles()` lists inside `~/.ssh` (no path
+escape), runs `ssh-add -d` best-effort, clears a repo pin pointing at it, and the IPC handler nulls
+`sshKeyPath` on every profile that used it before re-applying the active profile.

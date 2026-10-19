@@ -13,12 +13,13 @@ import type {
   AiSettings
 } from '@shared/types'
 import { getSettings } from '../settings'
+import { getActiveProfile, getProfileIds } from '../profiles'
 
 // ---------------------------------------------------------------------------
 // All AI calls live here, the same way all git calls live in gitService. The
 // renderer never sees the API key: it is written encrypted (OS keychain via
-// Electron safeStorage) to userData/ai-credentials.json and only ever read in
-// this process, right before a request goes out.
+// Electron safeStorage) to userData/ai-credentials.json — one key set per
+// profile — and only ever read in this process, right before a request goes out.
 // ---------------------------------------------------------------------------
 
 export class AiError extends Error {
@@ -52,18 +53,38 @@ const MAX_DIFF_CHARS = 60_000
 
 // --- key storage ------------------------------------------------------------
 
+/** One profile's keys, by provider. */
 type KeyFile = Partial<Record<AiProvider, string>>
+/** Keys are stored per profile (like the host tokens): switching profile switches keys. */
+type KeyStore = Record<string, KeyFile>
 
 function keyFilePath(): string {
   return path.join(app.getPath('userData'), 'ai-credentials.json')
 }
 
-async function readKeyFile(): Promise<KeyFile> {
+async function readKeyStore(): Promise<KeyStore> {
+  let raw: Record<string, unknown>
   try {
-    return JSON.parse(await fs.readFile(keyFilePath(), 'utf8')) as KeyFile
+    raw = JSON.parse(await fs.readFile(keyFilePath(), 'utf8')) as Record<string, unknown>
   } catch {
     return {}
   }
+  // Before profiles owned the keys the file was one flat provider → key map.
+  // Every existing profile inherits it, then each can diverge.
+  if (Object.keys(raw).some((k) => (PROVIDERS as string[]).includes(k))) {
+    const legacy = raw as KeyFile
+    const migrated: KeyStore = {}
+    for (const id of await getProfileIds()) migrated[id] = { ...legacy }
+    await fs.writeFile(keyFilePath(), JSON.stringify(migrated, null, 2), 'utf8')
+    return migrated
+  }
+  return raw as KeyStore
+}
+
+/** The active profile's keys. */
+async function readKeyFile(): Promise<KeyFile> {
+  const profile = await getActiveProfile()
+  return (await readKeyStore())[profile.id] ?? {}
 }
 
 export async function aiStatus(): Promise<AiKeyStatus> {
@@ -73,10 +94,12 @@ export async function aiStatus(): Promise<AiKeyStatus> {
   return { saved, encryptionAvailable: safeStorage.isEncryptionAvailable() }
 }
 
-/** Store (or clear, with `null`) the key for one provider. Never returns it. */
+/** Store (or clear, with `null`) the active profile's key for one provider. Never returns it. */
 export async function setAiKey(provider: AiProvider, key: string | null): Promise<AiKeyStatus> {
   if (!PROVIDERS.includes(provider)) throw new AiError(`Unknown provider "${provider}"`)
-  const stored = await readKeyFile()
+  const profile = await getActiveProfile()
+  const all = await readKeyStore()
+  const stored = { ...(all[profile.id] ?? {}) }
   if (key && key.trim()) {
     if (!safeStorage.isEncryptionAvailable()) {
       // Refuse rather than fall back to a plaintext file on disk.
@@ -89,7 +112,11 @@ export async function setAiKey(provider: AiProvider, key: string | null): Promis
   } else {
     delete stored[provider]
   }
-  await fs.writeFile(keyFilePath(), JSON.stringify(stored, null, 2), 'utf8')
+  await fs.writeFile(
+    keyFilePath(),
+    JSON.stringify({ ...all, [profile.id]: stored }, null, 2),
+    'utf8'
+  )
   return aiStatus()
 }
 

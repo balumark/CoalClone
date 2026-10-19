@@ -39,7 +39,7 @@ task. See the Memory Protocol in [CLAUDE.md](CLAUDE.md) for how to add/update en
 - [Context menu parity](fragments/context-menu-parity.md) — shared `buildBranchMenu` for Sidebar + graph, new git ops (set-upstream/fast-forward/worktree/patch), native dialogs, and Solo focus.
 - [Filemode clean tree](fragments/filemode-clean-tree.md) — every git call runs `-c core.fileMode=false` so WSL/Windows exec-bit flips don't make pull/rebase/checkout refuse a "dirty" tree the UI shows as clean.
 - [Reserved filenames](fragments/reserved-filenames.md) — `NUL`/`CON`/`COM1`… committed from Linux can't exist on Windows: phantom deletion that blocks discard/stash/pull, and the `RESERVED_NAME` handling.
-- [Profiles & tabs](fragments/profiles-and-tabs.md) — repository tabs + the Repositories/clone/create screen, and profiles owning the SSH key, commit identity and settings.
+- [Profiles & tabs](fragments/profiles-and-tabs.md) — repository tabs + the Repositories/clone/create screen, and profiles owning the SSH key, identity, settings, AI keys, recent list and open tabs (all swapped on switch).
 - [Optimistic updates](fragments/optimistic-updates.md) — stage/unstage/discard/checkout move the UI first and reconcile the (slow) snapshot in the background, with an undo when git refuses.
 - [AI assistance](fragments/ai-assistance.md) — enable/provider/API-key settings (safeStorage-encrypted), `aiService` as the single AI entry point, and the six features (commit message, explain, stash name, PR draft, conflict merge, commit composer).
 - [File context menu](fragments/file-context-menu.md) — right-click menu on staged/unstaged files in CommitPanel + the `shell:*` OS-integration IPC (open/reveal/editor/trash) and per-file git ops (patch/ignore/stash/difftool).
