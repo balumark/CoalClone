@@ -9,9 +9,9 @@ Milestone 5: `CommitGraph` is windowed so large histories stay smooth (previousl
 row + every SVG node/edge was in the DOM at once).
 
 - The scroll container tracks `scrollTop` (onScroll) and viewport height (`ResizeObserver`,
-  re-measured when toggling to/from the search view via a `[isSearching]` dep). A fallback height
+  re-measured on `[isSearching, hasContent]` — `hasContent` matters: on first render the "No commits" early return means the container doesn't exist yet, so a mount-only measure silently left height at the 1200 fallback). A fallback height
   of 1200 covers the first paint before measurement.
-- Visible index window: `firstVisible..lastVisible` from `scrollTop`/`viewportH` (÷ `ROW_H = 30`),
+- Visible index window: `firstVisible..lastVisible` from `scrollTop`/`viewportH` (÷ `ROW_H`, now 28),
   minus the working-row offset (`ROW_H` when uncommitted-changes row is shown), with an
   `OVERSCAN = 8` buffer each side.
 - Only `commits.slice(first, last+1)` rows render, each **absolutely positioned** at `top =

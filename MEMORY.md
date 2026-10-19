@@ -43,3 +43,4 @@ task. See the Memory Protocol in [CLAUDE.md](CLAUDE.md) for how to add/update en
 - [Optimistic updates](fragments/optimistic-updates.md) — stage/unstage/discard/checkout move the UI first and reconcile the (slow) snapshot in the background, with an undo when git refuses.
 - [AI assistance](fragments/ai-assistance.md) — enable/provider/API-key settings (safeStorage-encrypted), `aiService` as the single AI entry point, and the six features (commit message, explain, stash name, PR draft, conflict merge, commit composer).
 - [File context menu](fragments/file-context-menu.md) — right-click menu on staged/unstaged files in CommitPanel + the `shell:*` OS-integration IPC (open/reveal/editor/trash) and per-file git ops (patch/ignore/stash/difftool).
+- [Sidebar tree & filter](fragments/sidebar-tree-filter.md) — Ctrl+Alt+F ref filter, `/`-folder tree via pure `lib/refTree.ts`, sticky sections, persisted collapse state.
